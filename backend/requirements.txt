@@ -1,0 +1,2 @@
+# 后端运行只需要 Flask；ArcPy 来自 ArcGIS Pro 自带 Python 环境。
+Flask>=3.0,<4.0
