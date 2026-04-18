@@ -104,16 +104,29 @@ $env:OUTPUT_FOLDER="D:\your\output"
 
 ### GET /api/render-options
 
-返回前端或 Apifox 可用的固定选项，包括底图、标注位置、站点样式：
+返回前端或 Apifox 可用的固定选项，包括底图、标注位置、站点形状和站点颜色预设。
+
+站点形状和颜色已经拆开，前端可以自由组合：
 
 ```text
-rain_station
-hydrology_station
-reservoir
-city
-circle_green
-triangle_red
+station_symbol_shapes:
+circle
+triangle
+square
+diamond
+
+station_symbol_color_presets:
+blue
+cyan
+purple
+orange
+green
+red
+black
 ```
+
+旧版 `preset` 字段仍然兼容，例如 `circle_green`、`triangle_red`，但新请求建议使用
+`shape + color_preset` 或 `shape + color`。
 
 ### POST /api/render
 
@@ -146,9 +159,8 @@ Apifox 示例：
         "name_field": "name",
         "layer_name": "GreenCircleStations",
         "symbol": {
-          "preset": "circle_green",
           "shape": "circle",
-          "color": "#00a651",
+          "color_preset": "green",
           "size_pt": 20
         },
         "label": {
@@ -167,9 +179,8 @@ Apifox 示例：
         "name_field": "name",
         "layer_name": "RedTriangleStations",
         "symbol": {
-          "preset": "triangle_red",
           "shape": "triangle",
-          "color": "#ff0000",
+          "color_preset": "red",
           "size_pt": 20
         },
         "label": {
