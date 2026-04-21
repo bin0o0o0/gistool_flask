@@ -10,7 +10,7 @@ Make the ArcPy backend meaningful for this project by rendering from a real ArcG
 
 Use a template-copy workflow anchored on the user-provided ArcGIS Pro project:
 
-- Template project: `D:\work\2026\arcgis_file\gistool_test\gistool_test.aprx`
+- Template project: provided by the request field `template_project` or by the `ARCPY_TEMPLATE_PROJECT` environment variable.
 - Required template items:
   - map: `地图`
   - layout: `布局`

@@ -23,6 +23,7 @@ ArcPy 的对象模型比较深，尤其是 CIM 符号部分第一次看会有点
 
 from __future__ import annotations
 
+import csv
 import json
 import shutil
 import time
@@ -249,7 +250,7 @@ def _remove_existing_dataset(path: Path) -> None:
         path.unlink()
 
 
-def _apply_polygon_style(layer, job_config: dict[str, Any]) -> None:
+def _apply_polygon_style(layer, job_config: dict[str, Any], layer_config: dict[str, Any] | None = None) -> None:
     """设置流域边界面图层样式。
 
     对应请求 JSON：
@@ -261,7 +262,7 @@ def _apply_polygon_style(layer, job_config: dict[str, Any]) -> None:
     """
     if not _supports(layer, "SYMBOLOGY"):
         return
-    style = job_config.get("style", {})
+    style = (layer_config or {}).get("style") or job_config.get("style", {})
     boundary_style = style.get("basin_boundary", {})
     fill_style = style.get("basin_fill", {})
     try:
@@ -283,7 +284,7 @@ def _apply_polygon_style(layer, job_config: dict[str, Any]) -> None:
         return
 
 
-def _apply_line_style(layer, job_config: dict[str, Any]) -> None:
+def _apply_line_style(layer, job_config: dict[str, Any], layer_config: dict[str, Any] | None = None) -> None:
     """设置河流线图层样式。
 
     对应请求 JSON：
@@ -296,7 +297,7 @@ def _apply_line_style(layer, job_config: dict[str, Any]) -> None:
     """
     if not _supports(layer, "SYMBOLOGY"):
         return
-    style = job_config.get("style", {}).get("river_network", {})
+    style = ((layer_config or {}).get("style") or job_config.get("style", {})).get("river_network", {})
     try:
         symbology = layer.symbology
         symbol = symbology.renderer.symbol
@@ -391,6 +392,18 @@ def _marker_geometry(shape: str, size: float = 2.0) -> dict[str, list[list[list[
                 ]
             ]
         }
+    if shape == "rectangle":
+        return {
+            "rings": [
+                [
+                    [-size * 1.5, size * 0.75],
+                    [size * 1.5, size * 0.75],
+                    [size * 1.5, -size * 0.75],
+                    [-size * 1.5, -size * 0.75],
+                    [-size * 1.5, size * 0.75],
+                ]
+            ]
+        }
     return {
         "rings": [
             [
@@ -403,7 +416,7 @@ def _marker_geometry(shape: str, size: float = 2.0) -> dict[str, list[list[list[
     }
 
 
-def _apply_marker_shape_cim(layer, shape: str, color: str, size: float) -> None:
+def _apply_marker_shape_cim(layer, shape: str, color: str, size: float, rotation: float = 0.0) -> None:
     """用 CIM 把站点点符号改成指定形状。
 
     CIM 是 Cartographic Information Model，比普通 symbology API 更底层。
@@ -423,6 +436,7 @@ def _apply_marker_shape_cim(layer, shape: str, color: str, size: float) -> None:
         definition = layer.getDefinition("V2")
         marker_layer = definition.renderer.symbol.symbol.symbolLayers[0]
         marker_layer.size = size
+        marker_layer.angle = rotation
         marker_graphic = marker_layer.markerGraphics[0]
         marker_graphic.geometry = _marker_geometry(shape)
         rgb = [*_hex_to_rgb(color), 100]
@@ -464,10 +478,13 @@ def _apply_station_symbol(layer, station_layer: dict[str, Any]) -> None:
         symbol.color = _arcgis_rgb(color)
         if symbol_config.get("size_pt") is not None:
             symbol.size = float(symbol_config["size_pt"])
+        rotation = float(symbol_config.get("rotation_deg", 0) or 0)
+        if hasattr(symbol, "angle"):
+            symbol.angle = rotation
         layer.symbology = symbology
         # 非圆形站点需要 CIM，因为普通符号 API 不够稳定。
         shape = _station_shape(symbol_config)
-        _apply_marker_shape_cim(layer, shape, color, float(symbol_config.get("size_pt", 10)))
+        _apply_marker_shape_cim(layer, shape, color, float(symbol_config.get("size_pt", 10)), rotation)
     except Exception:
         return
 
@@ -557,6 +574,90 @@ def _apply_layout_elements(layout, job_config: dict[str, Any], warnings: list[st
             warnings.append("scale bar is enabled, but no scale bar element exists in the template layout.")
 
 
+def _positive_int(value: Any, default: int) -> int:
+    """把请求值转换成正整数，转换失败时使用默认值。
+
+    API 层已经会校验 output 字段是否存在，但渲染器也可能被脚本直接调用。
+    这里再兜底一次，避免 ArcPy 阶段因为 `0 dpi` 或非数字宽高抛出晦涩异常。
+    """
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _layout_units_per_inch(layout) -> tuple[str, float]:
+    """读取布局页面单位，并返回“一英寸等于多少布局单位”。
+
+    ArcGIS Pro 的 `layout.pageWidth/pageHeight` 使用模板自己的页面单位。
+    例如当前测试模板是 `MILLIMETER`，如果仍按英寸直接写 10.67，
+    ArcGIS 会理解成 10.67 毫米，最终图片就会非常小。
+    """
+    page_units = str(getattr(layout, "pageUnits", "INCH") or "INCH").upper()
+    units_per_inch = {
+        "INCH": 1.0,
+        "INCHES": 1.0,
+        "MILLIMETER": 25.4,
+        "MILLIMETERS": 25.4,
+        "CENTIMETER": 2.54,
+        "CENTIMETERS": 2.54,
+        "POINT": 72.0,
+        "POINTS": 72.0,
+    }.get(page_units, 1.0)
+    return page_units, units_per_inch
+
+
+def _apply_requested_output_size(layout, map_frame, job_config: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
+    """把请求里的像素尺寸真正应用到 ArcGIS Pro 布局。
+
+    ArcGIS Pro 的 Layout 导出 PNG 时，最终像素尺寸主要由两件事决定：
+    - 布局页面尺寸，单位通常是英寸；
+    - `exportToPNG(..., resolution=dpi)` 里的 dpi。
+
+    因此要得到 `width_px x height_px` 的图片，就需要把页面尺寸设置成：
+    - pageWidth = width_px / dpi
+    - pageHeight = height_px / dpi
+
+    同时把地图框铺满页面，避免只改页面尺寸后，地图内容仍停留在旧模板的小框里。
+    """
+    output_config = job_config.get("output", {})
+    width_px = _positive_int(output_config.get("width_px"), 1600)
+    height_px = _positive_int(output_config.get("height_px"), 1200)
+    dpi = _positive_int(output_config.get("dpi"), 96)
+    page_width_in = width_px / dpi
+    page_height_in = height_px / dpi
+    page_units, units_per_inch = _layout_units_per_inch(layout)
+    page_width = page_width_in * units_per_inch
+    page_height = page_height_in * units_per_inch
+
+    try:
+        layout.pageWidth = page_width
+        layout.pageHeight = page_height
+    except Exception:
+        warnings.append("layout page size could not be changed; template page size was kept.")
+
+    try:
+        # 地图框坐标使用布局页面单位。铺满页面后，输出比例会跟请求的宽高比例一致。
+        map_frame.elementPositionX = 0
+        map_frame.elementPositionY = 0
+        map_frame.elementWidth = page_width
+        map_frame.elementHeight = page_height
+    except Exception:
+        warnings.append("map frame size could not be changed; template map frame size was kept.")
+
+    return {
+        "width_px": width_px,
+        "height_px": height_px,
+        "dpi": dpi,
+        "page_width_in": round(page_width_in, 6),
+        "page_height_in": round(page_height_in, 6),
+        "layout_page_width": round(page_width, 6),
+        "layout_page_height": round(page_height, 6),
+        "layout_page_units": page_units,
+    }
+
+
 def _prepare_vector_dataset(
     arcpy,
     input_path: str,
@@ -616,13 +717,228 @@ def _create_station_feature_class(arcpy, station_layer: dict[str, Any], work_dir
     return point_path
 
 
-def _add_station_layers(arcpy, map_obj, station_layers: list[dict[str, Any]], work_dir: Path) -> None:
-    """把所有站点图层加入地图并设置样式/标注。"""
+def _create_station_table(arcpy, station_layer: dict[str, Any], work_dir: Path, index: int) -> Path:
+    """Convert one station Excel file into an ArcPy table."""
+    table_path = work_dir / f"station_table_{index}.dbf"
+    _remove_existing_dataset(table_path)
+    arcpy.conversion.ExcelToTable(
+        station_layer["path"],
+        str(table_path),
+        station_layer["sheet_name"],
+    )
+    return table_path
+
+
+def _xy_table_to_station_points(arcpy, table_path: Path, point_path: Path, station_layer: dict[str, Any]) -> Path:
+    """Convert a table containing x/y columns to a point feature class."""
+    _remove_existing_dataset(point_path)
+    arcpy.management.XYTableToPoint(
+        str(table_path),
+        str(point_path),
+        station_layer["x_field"],
+        station_layer["y_field"],
+        None,
+        arcpy.SpatialReference(4326),
+    )
+    return point_path
+
+
+def _combine_extents(arcpy, extents: list[Any], padding_ratio: float = 0.08) -> Any | None:
+    """Combine ArcPy extent objects when coordinate bounds are available."""
+    if not extents:
+        return None
+    bounds = []
+    for extent in extents:
+        try:
+            bounds.append(
+                (
+                    float(extent.XMin),
+                    float(extent.YMin),
+                    float(extent.XMax),
+                    float(extent.YMax),
+                )
+            )
+        except (AttributeError, TypeError, ValueError):
+            return extents[0]
+    try:
+        xmin = min(item[0] for item in bounds)
+        ymin = min(item[1] for item in bounds)
+        xmax = max(item[2] for item in bounds)
+        ymax = max(item[3] for item in bounds)
+        width = xmax - xmin
+        height = ymax - ymin
+        fallback_span = max(abs(xmin), abs(ymin), abs(xmax), abs(ymax), 1.0) * 0.01
+        pad_x = (width if width > 0 else fallback_span) * padding_ratio
+        pad_y = (height if height > 0 else fallback_span) * padding_ratio
+        return arcpy.Extent(xmin - pad_x, ymin - pad_y, xmax + pad_x, ymax + pad_y)
+    except Exception:
+        return extents[0]
+
+
+def _set_map_extent_to_layers(arcpy, map_frame, layers: list[Any], warnings: list[str]) -> None:
+    """Zoom the map frame to all business layers, including per-point station sublayers."""
+    extents = []
+    for layer in layers:
+        try:
+            extent = map_frame.getLayerExtent(layer, False, True)
+        except Exception:
+            warnings.append(f"layer extent could not be read for {getattr(layer, 'name', 'unnamed layer')}.")
+            continue
+        if extent is not None:
+            extents.append(extent)
+    combined_extent = _combine_extents(arcpy, extents)
+    if combined_extent is not None:
+        map_frame.camera.setExtent(combined_extent)
+
+
+def _station_style_key(station_layer: dict[str, Any]) -> str:
+    """Build a stable key for grouping points that share the same visual style."""
+    return json.dumps(
+        {
+            "symbol": station_layer.get("symbol", {}),
+            "label": station_layer.get("label", {}),
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+
+
+def _station_point_layer_config(station_layer: dict[str, Any], point_config: dict[str, Any] | None) -> dict[str, Any]:
+    """Merge layer defaults with one optional per-point override."""
+    merged = dict(station_layer)
+    merged["symbol"] = {
+        **(station_layer.get("symbol") or {}),
+        **((point_config or {}).get("symbol") or {}),
+    }
+    merged["label"] = {
+        **(station_layer.get("label") or {}),
+        **((point_config or {}).get("label") or {}),
+    }
+    return merged
+
+
+def _station_csv_fields(station_layer: dict[str, Any]) -> list[str]:
+    """Return the minimal table fields needed for points and labels."""
+    fields: list[str] = []
+    for field in (station_layer.get("x_field"), station_layer.get("y_field"), station_layer.get("name_field")):
+        if field and field not in fields:
+            fields.append(field)
+    return fields
+
+
+def _write_station_group_table(
+    work_dir: Path,
+    layer_index: int,
+    group_index: int,
+    fields: list[str],
+    rows: list[dict[str, Any]],
+) -> Path:
+    """Write one style group to a temporary CSV table for XYTableToPoint."""
+    table_path = work_dir / f"station_group_table_{layer_index}_{group_index}.csv"
+    _remove_existing_dataset(table_path)
+    with table_path.open("w", newline="", encoding="utf-8") as output:
+        writer = csv.DictWriter(output, fieldnames=fields)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field, "") for field in fields})
+    return table_path
+
+
+def _add_per_point_station_layers(
+    arcpy,
+    map_obj,
+    station_layer: dict[str, Any],
+    work_dir: Path,
+    index: int,
+    warnings: list[str],
+) -> list[Any]:
+    """Render one Excel station layer as internal sublayers grouped by per-point styles."""
+    table_path = _create_station_table(arcpy, station_layer, work_dir, index)
+    fields = _station_csv_fields(station_layer)
+    point_configs = {
+        int(point["row_number"]): point
+        for point in station_layer.get("points", [])
+        if isinstance(point, dict) and isinstance(point.get("row_number"), int)
+    }
+    seen_rows: set[int] = set()
+    groups: dict[str, dict[str, Any]] = {}
+
+    with arcpy.da.SearchCursor(str(table_path), fields) as cursor:
+        for zero_index, row_values in enumerate(cursor):
+            row_number = zero_index + 2
+            values = dict(zip(fields, row_values))
+            point_config = point_configs.get(row_number)
+            if point_config is None:
+                warnings.append(
+                    f"station layer {station_layer.get('layer_name', index)} row {row_number} used layer default style."
+                )
+            else:
+                seen_rows.add(row_number)
+            style_config = _station_point_layer_config(station_layer, point_config)
+            key = _station_style_key(style_config)
+            if key not in groups:
+                groups[key] = {"config": style_config, "rows": []}
+            groups[key]["rows"].append(values)
+
+    for row_number in sorted(set(point_configs) - seen_rows):
+        warnings.append(
+            f"station layer {station_layer.get('layer_name', index)} point row {row_number} was not found in Excel data."
+        )
+
+    base_layer_name = station_layer.get("layer_name") or f"StationLayer{index + 1}"
+    added_layers: list[Any] = []
+    for group_index, group in enumerate(groups.values()):
+        group_config = dict(group["config"])
+        group_config["layer_name"] = f"{base_layer_name} - {group_index + 1}"
+        group_table = _write_station_group_table(work_dir, index, group_index, fields, group["rows"])
+        point_path = work_dir / f"station_layer_{index}_group_{group_index}.shp"
+        _xy_table_to_station_points(arcpy, group_table, point_path, station_layer)
+        added_layer = map_obj.addDataFromPath(str(point_path))
+        _apply_station_symbol(added_layer, group_config)
+        _apply_station_labels(added_layer, group_config)
+        added_layers.append(added_layer)
+    return added_layers
+
+
+def _add_station_layers(arcpy, map_obj, station_layers: list[dict[str, Any]], work_dir: Path, warnings: list[str]) -> list[Any]:
+    """Add station layers to the map and apply layer or per-point styles."""
+    added_layers: list[Any] = []
     for index, station_layer in enumerate(station_layers):
+        if station_layer.get("points"):
+            added_layers.extend(_add_per_point_station_layers(arcpy, map_obj, station_layer, work_dir, index, warnings))
+            continue
         point_path = _create_station_feature_class(arcpy, station_layer, work_dir, index)
         added_layer = map_obj.addDataFromPath(str(point_path))
         _apply_station_symbol(added_layer, station_layer)
         _apply_station_labels(added_layer, station_layer)
+        added_layers.append(added_layer)
+    return added_layers
+
+
+def _basin_layer_configs(inputs: dict[str, Any]) -> list[dict[str, Any]]:
+    """兼容新旧流域面输入结构。"""
+    layers = inputs.get("basin_boundaries")
+    if isinstance(layers, list) and layers:
+        return [layer for layer in layers if isinstance(layer, dict) and layer.get("path")]
+    return [inputs["basin_boundary"]]
+
+
+def _river_layer_configs(inputs: dict[str, Any]) -> list[dict[str, Any]]:
+    """兼容新旧河流水系输入结构。"""
+    layers = inputs.get("river_networks")
+    if isinstance(layers, list) and layers:
+        return [layer for layer in layers if isinstance(layer, dict) and layer.get("path")]
+    return [inputs["river_network"]]
+
+
+def _rename_layer(layer, layer_name: str | None) -> None:
+    """给新增图层设置用户可读名称；失败时不阻断出图。"""
+    if not layer_name or not hasattr(layer, "name"):
+        return
+    try:
+        layer.name = layer_name
+    except Exception:
+        return
 
 
 def _export_template_render(
@@ -659,41 +975,51 @@ def _export_template_render(
         "map frame named 地图框",
     )
     warnings: list[str] = []
+    requested_output = _apply_requested_output_size(layout, map_frame, job_config, warnings)
 
     # 清掉上次请求留下的业务图层，保留模板自带底图。
     _clear_business_layers(map_obj)
     _apply_layout_elements(layout, job_config, warnings)
 
     inputs = job_config.get("inputs", {})
-    # 流域边界按面数据处理。
-    basin_path = _prepare_vector_dataset(
-        arcpy,
-        inputs["basin_boundary"]["path"],
-        output_png.parent,
-        "basin_boundary",
-        "POLYGON",
-    )
-    # 河流网络按线数据处理。这一点对河流能否显示非常关键。
-    river_path = _prepare_vector_dataset(
-        arcpy,
-        inputs["river_network"]["path"],
-        output_png.parent,
-        "river_network",
-        "POLYLINE",
-    )
-    # 先加流域，再加河流，再加站点。图层顺序通常会影响地图显示效果。
-    basin_layer = map_obj.addDataFromPath(str(basin_path))
-    _apply_polygon_style(basin_layer, job_config)
-    river_layer = map_obj.addDataFromPath(str(river_path))
-    _apply_line_style(river_layer, job_config)
-    _add_station_layers(arcpy, map_obj, inputs.get("station_layers", []), output_png.parent)
+    # 先加全部流域，再加全部河流，再加站点。图层顺序通常会影响地图显示效果。
+    basin_layers = []
+    for index, basin_config in enumerate(_basin_layer_configs(inputs)):
+        basin_path = _prepare_vector_dataset(
+            arcpy,
+            basin_config["path"],
+            output_png.parent,
+            f"basin_boundary_{index + 1}",
+            "POLYGON",
+        )
+        basin_layer = map_obj.addDataFromPath(str(basin_path))
+        _rename_layer(basin_layer, basin_config.get("layer_name"))
+        _apply_polygon_style(basin_layer, job_config, basin_config)
+        basin_layers.append(basin_layer)
 
-    # 根据流域边界缩放地图框，让导出的图片聚焦到本次数据范围。
-    extent = map_frame.getLayerExtent(basin_layer, False, True)
-    map_frame.camera.setExtent(extent)
+    river_layers = []
+    for index, river_config in enumerate(_river_layer_configs(inputs)):
+        river_path = _prepare_vector_dataset(
+            arcpy,
+            river_config["path"],
+            output_png.parent,
+            f"river_network_{index + 1}",
+            "POLYLINE",
+        )
+        river_layer = map_obj.addDataFromPath(str(river_path))
+        _rename_layer(river_layer, river_config.get("layer_name"))
+        _apply_line_style(river_layer, job_config, river_config)
+        river_layers.append(river_layer)
 
-    # DPI 控制导出图片清晰度。宽高目前主要由模板布局页面决定。
-    dpi = int(job_config.get("output", {}).get("dpi", 96))
+    station_layers = _add_station_layers(arcpy, map_obj, inputs.get("station_layers", []), output_png.parent, warnings)
+
+    # Zoom to all business layers. Stations can sit outside the basin boundary,
+    # especially while users are testing coordinates, so include them here too.
+    _set_map_extent_to_layers(arcpy, map_frame, basin_layers + river_layers + station_layers, warnings)
+
+    # DPI 和上面设置过的页面尺寸共同决定最终导出像素：
+    # width_px = pageWidth * dpi, height_px = pageHeight * dpi。
+    dpi = int(requested_output["dpi"])
     layout.exportToPNG(str(output_png), resolution=dpi)
 
     # 保存 aprx 副本，方便你打开输出目录里的工程检查图层和样式。
@@ -703,5 +1029,6 @@ def _export_template_render(
     return {
         "copied_project": str(copied_project),
         "requested_title": job_config.get("map_title"),
+        "requested_output": requested_output,
         "warnings": warnings,
     }

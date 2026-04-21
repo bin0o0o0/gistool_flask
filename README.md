@@ -1,6 +1,117 @@
 # GIS Flask Study Backend
 
-这是一个简化后的 ArcGIS Pro 出图后端。现在项目只保留标准 Flask backend 结构，不再使用 CLI、不再使用 SQLite、不再创建异步 job；Apifox 可以直接请求接口，让后端把地图输出到你指定的 `output_dir`。
+这是一个简化后的 ArcGIS Pro 出图后端。现在项目只保留标准 Flask backend 结构，不再使用 CLI、不再使用 SQLite、不再创建异步 job；Apifox 可以直接请求接口，让后端把地图输出到项目配置的 `OUTPUT_FOLDER` 下。
+
+## 快速使用 Web App
+
+这个项目现在包含一个浏览器工作台：前端负责上传数据、配置样式和提交出图；后端用 Flask 接收请求，并在同一个 ArcGIS Pro Python 进程里调用 ArcPy 导出 `map.png`。
+
+![Web App 工作台首页](docs/readme-assets/webapp-home.png)
+
+### 1. 启动后端
+
+真实出图必须用 ArcGIS Pro Python 启动后端，因为普通 `.venv` 里没有 ArcPy：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study
+& "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" backend\run.py
+```
+
+如果你的电脑更习惯直接调用 ArcGIS Pro 环境里的 `python.exe`，也可以这样启动：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study
+& "C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe" backend\run.py
+```
+
+看到下面这行就说明后端已经启动：
+
+```text
+Running on http://127.0.0.1:5000
+```
+
+可以用健康检查确认：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5000/api/health
+```
+
+### 2. 启动前端
+
+另开一个 PowerShell 窗口：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study\frontend
+npm install
+npm run dev
+```
+
+浏览器打开：
+
+```text
+http://127.0.0.1:5173
+```
+
+Vite 已经把 `/api` 代理到 `http://127.0.0.1:5000`，所以前端页面可以直接访问本地 Flask 后端。
+
+### 3. 在页面里完成一次出图
+
+按左侧流程从上到下配置：
+
+1. **基础数据**：上传 `.aprx` 模板、流域边界、河流水系和站点 Excel。Shapefile 建议打包成 `.zip` 上传，也可以一次选择 `.shp/.shx/.dbf/.prj` 等组件文件。
+2. **图层样式**：配置流域边界、流域填充和河流水系样式。
+3. **站点图层**：上传站点 Excel 后，页面会读取表头和每一行点位。先选择经度字段、纬度字段和名称字段，再在“逐点样式”表格里给每个点单独设置形状、颜色、大小、旋转和标注。
+4. **输出设置**：填写输出目录、标题、图片宽高和 DPI。默认情况下，`output_dir` 应使用相对路径，例如 `frontend_202604210009`。
+5. 点击页面底部的 **开始出图**，等待后端生成 PNG。
+
+页面底部的“请求体预览”会显示实际提交给 `/api/render` 的 JSON。调试逐点站点时，可以重点检查：
+
+```json
+"station_layers": [
+  {
+    "points": [
+      {
+        "row_number": 2,
+        "symbol": {
+          "shape": "triangle",
+          "color_preset": "red"
+        }
+      }
+    ]
+  }
+]
+```
+
+只要请求体里有 `points`，后端就会按 Excel 原始行号逐点渲染；没有 `points` 时，则兼容旧逻辑，整张站点 Excel 使用同一套图层默认样式。
+
+### 4. 查看出图结果
+
+本次测试示例使用的是 `output/frontend_202604210009`。成功后会生成：
+
+```text
+output/frontend_202604210009/
+  map.png
+  result.json
+  gistool_test.aprx
+  station_group_table_0_0.csv
+  station_layer_0_group_0.*
+  station_group_table_0_1.csv
+  station_layer_0_group_1.*
+  ...
+```
+
+`station_layer_0_group_0.*`、`station_layer_0_group_1.*` 这类文件表示同一个 Excel 内部已经按不同样式拆成多个内部站点图层。样式相同的点会合并到同一个内部图层，样式不同的点会分开渲染。
+
+下面是 `frontend_202604210009` 的示例结果，4 个站点来自同一个 Excel，但每个点使用了不同的符号样式：
+
+![逐点站点样式出图结果](docs/readme-assets/quick-start-result.png)
+
+### 常见问题
+
+- 如果页面显示 `failed`，先打开对应输出目录里的 `result.json`，里面有真实 ArcPy 错误。
+- 修改后端代码后，需要在后端 PowerShell 窗口按 `Ctrl + C` 停止服务，再重新运行 `backend\run.py`。
+- 如果站点还是整层同一种颜色或形状，检查“请求体预览”里是否带有 `station_layers[].points`。
+- 如果边缘点或标注被裁掉，确认后端已经重启到最新代码；当前版本会把流域、河流和站点一起纳入地图范围，并自动添加 buffer。
 
 ## 项目结构
 
@@ -24,77 +135,152 @@ backend/
 tests/
   test_backend_api.py
   test_arcpy_renderer.py
+frontend/
+  src/
+    views/
+    components/
+    stores/
+    api/
 ```
 
-## 启动方式
+## 推荐部署方式
 
-因为方案 A 是“后端进程内直接使用 ArcPy”，所以必须用 ArcGIS Pro 自带 Python 启动：
+推荐把 Flask 固定安装到项目自己的 `.venv`，然后仍然用 ArcGIS Pro 自带 Python 启动后端：
+
+```text
+项目 .venv
+  存放 Flask 等普通 Python 依赖
+
+ArcGIS Pro Python / propy.bat
+  提供 arcpy，并在启动时额外查找项目 .venv\Lib\site-packages
+```
+
+先安装项目依赖：
+
+```powershell
+.\scripts\setup.ps1
+```
+
+安装脚本固定要求 Python 3.9。默认会调用 `python3.9`，如果你的电脑没有这个命令，可以传入 Python 3.9 的完整路径：
+
+```powershell
+.\scripts\setup.ps1 -PythonPath "D:\Python39\python.exe"
+```
+
+如果默认 PyPI 网络慢或代理报错，可以改用镜像源：
+
+```powershell
+.\scripts\setup.ps1 -IndexUrl https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+再检查 ArcGIS Pro Python 能否找到项目 `.venv` 里的 Flask：
+
+```powershell
+.\scripts\check_runtime.ps1
+```
+
+如果 ArcGIS Pro 不是默认安装路径，可以通过参数或环境变量指定 `propy.bat`：
+
+```powershell
+.\scripts\check_runtime.ps1 -PropyPath "D:\ArcGIS\Pro\bin\Python\Scripts\propy.bat"
+$env:ARCGIS_PROPY="D:\ArcGIS\Pro\bin\Python\Scripts\propy.bat"
+```
+
+最后启动后端：
 
 ```powershell
 & "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" backend\run.py
+```
+
+## 前端工作台
+
+前端位于 `frontend/`，使用 Vue 3、Vite、TypeScript、Pinia、Axios 和 Element Plus。
+页面风格借鉴 Gitee 参考项目的暖色纸张感工作台，但保留 Element Plus 的表单、上传和颜色选择器。
+
+启动后端后，再启动前端：
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+开发服务器默认地址是：
+
+```text
+http://localhost:5173
+```
+
+Vite 已把 `/api` 代理到 `http://localhost:5000`，所以前端可以直接调用当前 Flask 后端。
+
+前端第一版支持：
+
+- 上传 `.aprx` 模板、流域边界、河流水系、站点 Excel。
+- Shapefile 建议打包成 `.zip` 上传。
+- 配置输出尺寸、DPI、流域边界、流域填充、河流线宽和颜色。
+- 支持一个站点 Excel 图层内逐点配置形状、颜色、大小、标注颜色、字号、位置和旋转角度。
+- 在逐点样式表格里直接预览每个点当前的符号形状和颜色。
+- 复制 `/api/render` JSON 请求体，方便继续用 Apifox 对照调试。
+- 出图成功后在页面中预览最终 `map.png`。
+
+后端默认只监听本机 `127.0.0.1:5000`，并且默认关闭 Flask debug。局域网联调时再显式设置：
+
+```powershell
+$env:FLASK_HOST="0.0.0.0"
+$env:FLASK_DEBUG="true"
 ```
 
 ## 通用环境部署
 
-这个后端有一个特殊点：Flask 服务和 ArcPy 必须在同一个 Python 进程里运行。因为 ArcPy 只能由 ArcGIS Pro Python 提供，所以新电脑部署时，关键不是“普通 Python 有没有 Flask”，而是：
+这个后端有一个特殊点：Flask 服务和 ArcPy 必须在同一个 Python 进程里运行。因为 ArcPy 只能由 ArcGIS Pro Python 提供，所以启动时仍然使用 `propy.bat`。
+
+为了让新电脑部署更简单，项目启动时会自动把下面两个目录加入 Python 搜索路径：
 
 ```text
-ArcGIS Pro Python 能不能 import flask
-```
-
-可以先用这条命令检查：
-
-```powershell
-& "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" -c "import flask; print(flask.__version__)"
-```
-
-如果能打印 Flask 版本，就可以直接启动后端。如果报 `ModuleNotFoundError: No module named 'flask'`，需要给 ArcGIS Pro Python 配 Flask。
-
-### 推荐方式：ArcGIS Pro Python 直接安装 Flask
-
-如果新电脑能正常联网，可以直接安装：
-
-```powershell
-& "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" -m pip install Flask
-```
-
-安装后再次检查：
-
-```powershell
-& "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" -c "import flask; print(flask.__version__)"
-```
-
-### 更稳方式：使用 ArcGIS Pro 克隆环境
-
-如果不想改 ArcGIS Pro 默认环境，推荐在 ArcGIS Pro 里克隆一个 Python 环境，然后在克隆环境里安装 Flask，再用克隆环境的 Python 启动后端。这样不会污染默认 `arcgispro-py3`。
-
-### 兼容方式：用户 site-packages
-
-有些电脑上，Flask 可能被安装到了当前用户目录，例如：
-
-```text
+<项目根目录>\.venv\Lib\site-packages
 C:\Users\<用户名>\AppData\Roaming\Python\Python39\site-packages
 ```
 
-`backend/app/__init__.py` 里的 `_ensure_user_site_packages()` 会自动调用 `site.getusersitepackages()`，把当前用户的 site-packages 加入 `sys.path`。这个函数没有写死用户名或固定电脑路径，所以换电脑也会自动计算对应用户目录。
+也就是说，Flask 可以固定安装在项目 `.venv` 里，不需要再手动安装到 ArcGIS Pro Python 环境目录。
 
-注意：这个函数只是“让 Python 多找一个目录”，不会自动安装 Flask。新电脑仍然要先确保 Flask 已安装在 ArcGIS Pro Python 能访问的位置。
+可以用这条命令检查：
 
-`flask-cors` 目前不是必需依赖；如果后续接浏览器前端再安装也可以。Apifox 调试不需要它。
-
-默认模板工程路径是：
-
-```text
-D:\work\2026\arcgis_file\gistool_test\gistool_test.aprx
+```powershell
+.\scripts\check_runtime.ps1
 ```
 
-如果以后要换模板，可以设置环境变量：
+如果能打印 `Flask OK`，并且 `Flask file` 位于项目 `.venv\Lib\site-packages` 下面，就可以直接启动后端。
+如果报 `ModuleNotFoundError: No module named 'flask'`，或提示 Flask 不是从项目 `.venv` 加载的，先运行：
+
+```powershell
+.\scripts\setup.ps1
+```
+
+### 为什么不直接用 .venv 启动后端
+
+不要用下面这种方式启动真实出图服务：
+
+```powershell
+.\.venv\Scripts\python.exe backend\run.py
+```
+
+原因是 `.venv` 里有 Flask，但没有 ArcPy。真实出图仍然必须由 ArcGIS Pro Python 启动。
+
+### 兼容方式：用户 site-packages
+
+项目仍然兼容用户目录 site-packages。也就是说，如果某台电脑以前已经把 Flask 安装到了当前用户目录，后端依然能找到它。不过推荐新部署时统一使用项目 `.venv`。
+
+模板工程路径不在代码里写死。推荐由前端或 Apifox 在每次请求的 `template_project` 字段里传入。
+如果某个部署环境固定使用同一个模板，也可以设置环境变量：
 
 ```powershell
 $env:ARCPY_TEMPLATE_PROJECT="D:\your\template.aprx"
+$env:ARCGIS_PROPY="D:\your\ArcGIS\Pro\bin\Python\Scripts\propy.bat"
 $env:OUTPUT_FOLDER="D:\your\output"
-& "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" backend\run.py
+& $env:ARCGIS_PROPY backend\run.py
 ```
+
+如果请求体没有传 `template_project`，并且也没有设置 `ARCPY_TEMPLATE_PROJECT`，`POST /api/render` 会返回 400，提示缺少模板路径。
 
 ## 接口
 
@@ -114,6 +300,7 @@ circle
 triangle
 square
 diamond
+rectangle
 
 station_symbol_color_presets:
 blue
@@ -130,13 +317,17 @@ black
 
 ### POST /api/render
 
-直接出图。请求体里传真实文件路径和输出目录，不再传 `file_id`。
+直接出图。请求体里传真实数据文件路径和相对输出目录，不再传 `file_id`。
+默认情况下，`output_dir` 必须是相对路径，例如 `"demo_001"`，后端会把结果写入 `OUTPUT_FOLDER/demo_001`。
+这样前端不能让服务器写入任意绝对目录；只有本地调试时才建议临时设置 `ALLOW_ABSOLUTE_OUTPUT_DIR=true`。
+`output.width_px`、`output.height_px` 和 `output.dpi` 会共同控制最终 PNG 的像素尺寸。
+后端会自动按模板布局单位换算页面大小，例如模板使用毫米时会把 `1600x1200@150dpi` 换算成约 `270.93mm x 203.2mm`。
 
 Apifox 示例：
 
 ```json
 {
-  "output_dir": "D:/work/2026/code/life/gis_flask_study/output/demo_001",
+  "output_dir": "demo_001",
   "map_title": "示例流域水系图",
   "output": {
     "width_px": 1600,
@@ -226,6 +417,44 @@ map.png
 result.json
 gistool_test.aprx
 ```
+
+### POST /api/uploads
+
+前端文件上传接口。浏览器不能可靠读取用户电脑的绝对路径，所以前端先把文件上传给后端，
+后端保存到 `uploads/` 后返回可供 `/api/render` 使用的本地路径。
+
+请求类型是 `multipart/form-data`：
+
+```text
+kind: template_project | basin_boundary | river_network | station_excel
+file: 用户选择的文件
+```
+
+返回示例：
+
+```json
+{
+  "success": true,
+  "data": {
+    "file_id": "uuid",
+    "kind": "basin_boundary",
+    "original_name": "basin.geojson",
+    "path": "D:/work/.../uploads/20260420/uuid/basin.geojson",
+    "suffix": ".geojson",
+    "size_bytes": 1234
+  }
+}
+```
+
+### GET /api/render/file
+
+前端预览最终 PNG 使用的只读接口：
+
+```text
+/api/render/file?path=<后端返回的 output_png>
+```
+
+为了避免任意文件读取，这个接口只允许读取 `OUTPUT_FOLDER` 下面的 `.png` 文件。
 
 ## 模板工程要求
 

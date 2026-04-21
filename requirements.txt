@@ -1,5 +1,5 @@
-# Flask 是后端 HTTP 服务框架；ArcPy 本身由 ArcGIS Pro Python 提供，不在 pip 里安装。
+# Flask is the backend HTTP framework; ArcPy is provided by ArcGIS Pro Python.
 Flask>=3.0,<4.0
 
-# pytest 用于普通单元测试；这些测试不依赖真实 ArcGIS Pro。
+# pytest is used by unit tests; these tests do not require real ArcGIS Pro.
 pytest>=8.0,<9.0

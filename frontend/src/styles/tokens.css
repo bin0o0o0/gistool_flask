@@ -1,0 +1,20 @@
+/* 设计 tokens：集中管理纸张感底色、强调色、圆角、阴影和字体，后续换肤只改这里。 */
+:root {
+  --bg-canvas: #f6f0e6;
+  --bg-surface: rgba(255, 251, 245, 0.84);
+  --bg-deep: #123c37;
+  --bg-soft: #d9e4d2;
+  --text-strong: #1f1b17;
+  --text-body: #54473d;
+  --text-muted: #7c6d61;
+  --accent: #ba6a31;
+  --accent-dark: #8d4f22;
+  --line-soft: rgba(31, 27, 23, 0.1);
+  --shadow-soft: 0 20px 50px rgba(20, 33, 30, 0.08);
+  --radius-xl: 28px;
+  --radius-lg: 20px;
+  --radius-md: 16px;
+  --content-width: 1480px;
+  --font-display: "Georgia", "Times New Roman", serif;
+  --font-body: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}

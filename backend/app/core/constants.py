@@ -41,6 +41,7 @@ STATION_SYMBOL_SHAPES = [
     "triangle",
     "square",
     "diamond",
+    "rectangle",
 ]
 
 # 站点颜色预设。

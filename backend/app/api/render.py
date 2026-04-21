@@ -25,7 +25,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from flask import Blueprint, current_app, request
+from flask import Blueprint, current_app, request, send_file
 
 from app.core.constants import (
     BASemaps,
@@ -95,6 +95,33 @@ def render_map():
     return success_response(result)
 
 
+@render_bp.get("/file")
+def render_file():
+    """把已生成的 PNG 作为浏览器可访问的文件返回。
+
+    `/api/render` 返回的是服务器本地路径，例如 `D:\\...\\map.png`。
+    浏览器不能直接读取这个路径，所以前端需要通过这个只读接口预览图片。
+    """
+    raw_path = request.args.get("path")
+    if not raw_path:
+        return error_response("Missing path.", 400)
+
+    config = current_app.extensions["app_config"]
+    file_path = Path(raw_path).resolve()
+    output_root = config.output_folder.resolve()
+    try:
+        file_path.relative_to(output_root)
+    except ValueError:
+        return error_response("Requested file must stay under OUTPUT_FOLDER.", 400)
+
+    if not file_path.exists() or not file_path.is_file():
+        return error_response("Requested file does not exist.", 404)
+    if file_path.suffix.lower() != ".png":
+        return error_response("Only PNG render outputs can be previewed.", 400)
+
+    return send_file(file_path, mimetype="image/png")
+
+
 def _build_render_request(payload: dict[str, Any]) -> tuple[dict[str, Any], Path, Path]:
     """把原始请求 JSON 转换成渲染器参数。
 
@@ -106,7 +133,11 @@ def _build_render_request(payload: dict[str, Any]) -> tuple[dict[str, Any], Path
     _validate_render_payload(payload)
     config = current_app.extensions["app_config"]
 
-    output_dir = _resolve_output_dir(payload["output_dir"], config.output_folder)
+    output_dir = _resolve_output_dir(
+        payload["output_dir"],
+        config.output_folder,
+        config.allow_absolute_output_dir,
+    )
     template_project = _resolve_template_project(payload.get("template_project"), config.arcpy_template_project)
 
     job_config = {
@@ -118,18 +149,32 @@ def _build_render_request(payload: dict[str, Any]) -> tuple[dict[str, Any], Path
     return job_config, output_dir, template_project
 
 
-def _resolve_output_dir(value: str, default_root: Path) -> Path:
+def _resolve_output_dir(value: str, default_root: Path, allow_absolute: bool = False) -> Path:
     """解析本次输出目录。
 
-    - 如果请求传绝对路径，例如 `D:/xxx/out1`，就直接使用。
-    - 如果请求传相对路径，例如 `demo_001`，就放到默认 OUTPUT_FOLDER 下。
+    默认只允许相对路径，例如 `demo_001`，并统一放到 OUTPUT_FOLDER 下面。
+    这样前端不能把结果写到服务器任意目录。
+
+    如果本地调试确实需要绝对路径，可以显式开启 ALLOW_ABSOLUTE_OUTPUT_DIR。
     """
     if not value:
         raise ValidationError("Missing output_dir.")
+    default_root = default_root.resolve()
     path = Path(value)
+    if path.is_absolute() and not allow_absolute:
+        raise ValidationError(
+            "output_dir must be a relative path under OUTPUT_FOLDER. "
+            "Set ALLOW_ABSOLUTE_OUTPUT_DIR=true only for local debugging."
+        )
     if not path.is_absolute():
         path = default_root / path
-    return path.resolve()
+    resolved = path.resolve()
+    if not allow_absolute:
+        try:
+            resolved.relative_to(default_root)
+        except ValueError as exc:
+            raise ValidationError("output_dir must stay under OUTPUT_FOLDER.") from exc
+    return resolved
 
 
 def _resolve_template_project(value: str | None, default_template: Path | None) -> Path:
@@ -163,8 +208,9 @@ def _validate_render_payload(payload: dict[str, Any]) -> None:
         raise ValidationError(f"Missing required fields: {', '.join(missing)}")
 
     output = _require_dict(payload, "output")
-    # width_px 和 height_px 当前主要是接口协议字段，真正导出尺寸更多由模板布局决定；
-    # dpi 已经在 ArcPy exportToPNG 时使用。
+    # width_px / height_px / dpi 会传给 ArcPyRenderer。
+    # 渲染器会把像素尺寸换算成布局页面尺寸，再用 dpi 导出 PNG，
+    # 因此这三个字段共同决定最终图片的像素宽高。
     for field in ("width_px", "height_px", "dpi"):
         if field not in output:
             raise ValidationError(f"Missing output.{field}")
@@ -245,6 +291,48 @@ def _validate_station_layer(layer: Any, index: int) -> None:
     # 先校验 position，后续即使增强标注偏移，也不会破坏接口协议。
     if position not in LABEL_POSITIONS:
         raise ValidationError(f"Unsupported label.position: {position}")
+
+    points = layer.get("points")
+    if points is not None:
+        if not isinstance(points, list):
+            raise ValidationError(f"inputs.station_layers[{index}].points must be a list.")
+        for point_index, point in enumerate(points):
+            _validate_station_point(point, index, point_index)
+
+
+def _validate_station_point(point: Any, layer_index: int, point_index: int) -> None:
+    """Validate one optional per-point station style override."""
+    if not isinstance(point, dict):
+        raise ValidationError(f"inputs.station_layers[{layer_index}].points[{point_index}] must be an object.")
+
+    row_number = point.get("row_number")
+    if not isinstance(row_number, int) or row_number < 2:
+        raise ValidationError(
+            f"inputs.station_layers[{layer_index}].points[{point_index}].row_number must be an Excel data row number."
+        )
+
+    symbol = point.get("symbol")
+    if symbol is not None:
+        if not isinstance(symbol, dict):
+            raise ValidationError(
+                f"inputs.station_layers[{layer_index}].points[{point_index}].symbol must be an object."
+            )
+        shape = symbol.get("shape")
+        if shape and shape not in STATION_SYMBOL_SHAPES:
+            raise ValidationError(f"Unsupported station point symbol shape: {shape}")
+        color_preset = symbol.get("color_preset")
+        if color_preset and color_preset not in STATION_SYMBOL_COLOR_PRESETS:
+            raise ValidationError(f"Unsupported station point symbol color preset: {color_preset}")
+
+    label = point.get("label")
+    if label is not None:
+        if not isinstance(label, dict):
+            raise ValidationError(
+                f"inputs.station_layers[{layer_index}].points[{point_index}].label must be an object."
+            )
+        position = label.get("position")
+        if position and position not in LABEL_POSITIONS:
+            raise ValidationError(f"Unsupported station point label.position: {position}")
 
 
 def _require_dict(payload: dict[str, Any], field: str) -> dict[str, Any]:

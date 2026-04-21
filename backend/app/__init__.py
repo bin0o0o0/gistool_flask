@@ -24,10 +24,10 @@ def create_app(config_overrides: dict | None = None):
     Returns:
         配置完成、蓝图注册完成的 Flask app。
     """
-    # ArcGIS Pro 的 propy 有时不会自动加载“当前用户”的 site-packages。
-    # 如果某台电脑把 Flask 安装到了用户目录而不是 ArcGIS Pro 环境目录，
-    # 这里会把那个用户目录补进 sys.path。路径由 Python 自动计算，不写死用户名。
-    _ensure_user_site_packages()
+    # ArcGIS Pro 的 propy 有时不会自动加载项目虚拟环境或当前用户的 site-packages。
+    # 这里先补项目 .venv，再补用户目录。这样 Flask 可以固定安装在项目 .venv 中，
+    # 但进程仍然由 propy 启动，ArcPy 仍然来自 ArcGIS Pro Python。
+    _ensure_runtime_site_packages()
 
     # 延迟导入 Flask：这样 `from app.gis.render import ArcPyRenderer`
     # 这种只想使用渲染核心的代码，不会因为环境里缺 Flask 而失败。
@@ -73,10 +73,12 @@ def _register_blueprints(app) -> None:
     from app.api.health import health_bp
     from app.api.options import options_bp
     from app.api.render import render_bp
+    from app.api.uploads import uploads_bp
 
     app.register_blueprint(health_bp, url_prefix="/api/health")
     app.register_blueprint(options_bp, url_prefix="/api/render-options")
     app.register_blueprint(render_bp, url_prefix="/api/render")
+    app.register_blueprint(uploads_bp, url_prefix="/api/uploads")
 
 
 def _register_error_handlers(app) -> None:
@@ -100,39 +102,96 @@ def _register_error_handlers(app) -> None:
         return error_response("Internal server error.", 500)
 
 
-def _ensure_user_site_packages() -> None:
-    """把当前用户的 Python site-packages 加入搜索路径。
+def _ensure_runtime_site_packages() -> None:
+    """把项目和用户级 Python site-packages 加入搜索路径。
 
     背景:
         ArcGIS Pro 的 `propy.bat` 会启动 `arcgispro-py3` 环境。
         在一些电脑上，`propy` 默认只加载 ArcGIS Pro 环境自己的
-        site-packages，不会加载当前用户目录下的 site-packages。
+        site-packages，不会加载项目 `.venv` 或当前用户目录下的 site-packages。
 
     为什么需要这个函数:
-        Flask 可以安装在两类位置：
+        Flask 可以安装在三类位置：
 
-        1. ArcGIS Pro Python 环境目录，例如
+        1. 项目虚拟环境目录，例如
+           `<项目根目录>\\.venv\\Lib\\site-packages`
+        2. ArcGIS Pro Python 环境目录，例如
            `...\\ArcGIS\\Pro\\bin\\Python\\envs\\arcgispro-py3\\Lib\\site-packages`
-        2. 当前用户目录，例如
+        3. 当前用户目录，例如
            `C:\\Users\\<用户名>\\AppData\\Roaming\\Python\\Python39\\site-packages`
 
-        如果 Flask 在第 1 类位置，通常不需要这个函数。
-        如果 Flask 在第 2 类位置，这里主动调用 `site.addsitedir()`，
+        如果 Flask 在 ArcGIS Pro 环境目录，通常不需要这个函数。
+        如果 Flask 在项目 `.venv` 或用户目录，这里主动调用 `site.addsitedir()`，
         让 `import flask` 能找到它。
 
     通用性:
-        这里没有写死任何电脑用户名或固定路径。
-        `site.getusersitepackages()` 会根据当前电脑、当前用户、当前 Python 版本
-        自动计算用户 site-packages 路径。
+        项目 `.venv` 路径根据当前文件位置自动向上推导，不写死盘符。
+        用户 site-packages 由 `site.getusersitepackages()` 自动计算，不写死用户名。
 
     注意:
-        这个函数只是兼容补丁，不会自动安装 Flask。
-        换到新电脑部署时，仍然需要先确保 ArcGIS Pro Python 能访问 Flask。
+        这个函数只是“让 propy 能找到项目 .venv 里的 Flask”，不会自动安装 Flask。
+        新电脑部署时仍然要先运行安装脚本，把 Flask 安装进项目 `.venv`。
+    """
+    import site
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        _project_venv_site_packages(project_root),
+        Path(site.getusersitepackages()),
+    ]
+    _add_existing_site_package_dirs(candidates)
+
+
+def _project_venv_site_packages(project_root) -> "Path":
+    """计算项目 `.venv` 的 site-packages 路径。
+
+    当前项目主要面向 Windows + ArcGIS Pro，所以优先使用 Windows venv 路径：
+    `.venv\\Lib\\site-packages`。
+    """
+    from pathlib import Path
+
+    return Path(project_root) / ".venv" / "Lib" / "site-packages"
+
+
+def _add_existing_site_package_dirs(candidates) -> None:
+    """把存在的 site-packages 目录加入 sys.path。
+
+    使用 `site.addsitedir()` 而不是简单 `sys.path.append()`，是因为
+    addsitedir 会处理 `.pth` 文件，更接近 Python 正常加载 site-packages 的行为。
+
+    这里还有一个很重要的小细节：项目 `.venv` 必须排在用户 site-packages 前面。
+    如果某台电脑用户目录里也装过 Flask，我们仍然希望优先使用项目内固定的 Flask，
+    这样部署结果更稳定，不会被用户以前装过的包版本影响。
     """
     import site
     import sys
     from pathlib import Path
 
+    existing_paths = []
+    for candidate in candidates:
+        candidate_path = Path(candidate)
+        candidate_text = str(candidate_path)
+        if candidate_path.exists():
+            site.addsitedir(candidate_text)
+
+            # 先记录，稍后统一调整顺序，保证传入 candidates 的顺序就是最终优先级。
+            existing_paths.append(candidate_text)
+
+    for candidate_text in reversed(existing_paths):
+        while candidate_text in sys.path:
+            sys.path.remove(candidate_text)
+        sys.path.insert(0, candidate_text)
+
+
+def _ensure_user_site_packages() -> None:
+    """兼容旧名称：只补当前用户的 site-packages。
+
+    现在 `create_app()` 已经改用 `_ensure_runtime_site_packages()`。
+    这个函数保留给旧测试或外部临时脚本，避免私有函数名变化导致导入失败。
+    """
+    import site
+    from pathlib import Path
+
     user_site = Path(site.getusersitepackages())
-    if user_site.exists() and str(user_site) not in sys.path:
-        site.addsitedir(str(user_site))
+    _add_existing_site_package_dirs([user_site])

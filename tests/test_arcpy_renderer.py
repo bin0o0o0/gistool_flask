@@ -27,6 +27,14 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 
+class _FakeExtent:
+    def __init__(self, xmin: float, ymin: float, xmax: float, ymax: float) -> None:
+        self.XMin = xmin
+        self.YMin = ymin
+        self.XMax = xmax
+        self.YMax = ymax
+
+
 class _FakeLayer:
     """模拟 ArcPy 图层对象。
 
@@ -37,10 +45,10 @@ class _FakeLayer:
     - labelClasses/CIM definition
     """
 
-    def __init__(self, name: str, *, is_basemap: bool = False, extent: str | None = None) -> None:
+    def __init__(self, name: str, *, is_basemap: bool = False, extent=None) -> None:
         self.name = name
         self.isBasemapLayer = is_basemap
-        self.extent = extent or f"extent:{name}"
+        self.extent = extent or _FakeExtent(0, 0, 10, 10)
         self.symbology = _FakeSymbology()
         self.showLabels = False
         self._label_classes = [_FakeLabelClass()]
@@ -208,6 +216,10 @@ class _FakeMapFrame:
         self.name = "地图框"
         self.camera = _FakeCamera()
         self.requested_extent_layers: list[str] = []
+        self.elementPositionX = None
+        self.elementPositionY = None
+        self.elementWidth = None
+        self.elementHeight = None
 
     def getLayerExtent(self, layer, *_args):
         # 真实 ArcPy 会计算图层范围；fake 直接返回 layer.extent。
@@ -221,6 +233,10 @@ class _FakeLayout:
     def __init__(self, map_frame: _FakeMapFrame | None) -> None:
         self._map_frame = map_frame
         self.exported_png: str | None = None
+        self.exported_resolution: int | None = None
+        self.pageWidth = 11
+        self.pageHeight = 8.5
+        self.pageUnits = "INCH"
 
     def listElements(self, element_type=None, wildcard=None):
         # 当前渲染器主要查找 MAPFRAME_ELEMENT。
@@ -234,6 +250,7 @@ class _FakeLayout:
     def exportToPNG(self, path: str, resolution: int = 96):
         # 真实 ArcPy 会导出图片；fake 只写一个字节文件表示“导出发生了”。
         self.exported_png = path
+        self.exported_resolution = resolution
         Path(path).write_bytes(b"fake-png")
 
 
@@ -276,12 +293,17 @@ def _install_fake_arcpy(monkeypatch, fake_project_factory, *, fail_on_existing_o
     excel_calls = []
     xy_calls = []
     json_to_features_calls = []
+    table_rows = {}
 
     def _excel_to_table(input_excel, output_table, sheet_name):
         # 记录调用参数，测试可以检查 Excel 是否真的被转换。
         if fail_on_existing_outputs and Path(output_table).exists():
             raise RuntimeError(f"already exists: {output_table}")
         excel_calls.append((input_excel, output_table, sheet_name))
+        table_rows[output_table] = [
+            {"lon": 100, "lat": 30, "name": "Station A"},
+            {"lon": 101, "lat": 31, "name": "Station B"},
+        ]
         Path(output_table).write_text("table", encoding="utf-8")
         return output_table
 
@@ -289,9 +311,35 @@ def _install_fake_arcpy(monkeypatch, fake_project_factory, *, fail_on_existing_o
         # 记录 x/y 字段和坐标系，证明站点 Excel 被转成点图层。
         if fail_on_existing_outputs and Path(output_fc).exists():
             raise RuntimeError(f"already exists: {output_fc}")
+        if not Path(input_table).exists():
+            raise RuntimeError(f"input table does not exist: {input_table}")
         xy_calls.append((input_table, output_fc, x_field, y_field, z_field, coordinate_system))
         Path(output_fc).write_text("points", encoding="utf-8")
         return output_fc
+
+    class _SearchCursor:
+        """Small fake for arcpy.da.SearchCursor over ExcelToTable output rows."""
+
+        def __init__(self, table, field_names):
+            self._rows = table_rows.get(str(table), [])
+            self._field_names = list(field_names)
+            self._index = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, _exc_type, _exc, _traceback):
+            return False
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if self._index >= len(self._rows):
+                raise StopIteration
+            row = self._rows[self._index]
+            self._index += 1
+            return tuple(row.get(field) for field in self._field_names)
 
     def _json_to_features(input_json, output_features, geometry_type=None):
         # 记录 geometry_type，测试会断言流域是 POLYGON、河流是 POLYLINE。
@@ -320,7 +368,9 @@ def _install_fake_arcpy(monkeypatch, fake_project_factory, *, fail_on_existing_o
             JSONToFeatures=_json_to_features,
         ),
         management=SimpleNamespace(XYTableToPoint=_xy_table_to_point),
+        da=SimpleNamespace(SearchCursor=_SearchCursor),
         SpatialReference=lambda wkid: f"sr:{wkid}",
+        Extent=_FakeExtent,
         _excel_calls=excel_calls,
         _xy_calls=xy_calls,
         _json_to_features_calls=json_to_features_calls,
@@ -433,6 +483,72 @@ def test_arcpy_renderer_copies_template_and_exports_png(tmp_path, monkeypatch):
     assert (output_dir / "result.json").exists()
 
 
+def test_arcpy_renderer_applies_requested_output_pixel_size_to_layout(tmp_path, monkeypatch):
+    """width_px/height_px/dpi 应转换成布局页面尺寸，并让地图框铺满页面。"""
+    from app.gis.render import ArcPyRenderer
+
+    template_project = tmp_path / "template.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    fake_projects = []
+
+    def build_project(opened_path: str):
+        project = _FakeProject(opened_path)
+        fake_projects.append(project)
+        return project
+
+    _install_fake_arcpy(monkeypatch, build_project)
+
+    result = ArcPyRenderer().render(
+        job_config=_job_config(tmp_path),
+        output_dir=tmp_path / "outputs",
+        template_project=template_project,
+    )
+
+    layout = fake_projects[0]._layout
+    map_frame = fake_projects[0]._map_frame
+    assert round(layout.pageWidth, 3) == round(1200 / 144, 3)
+    assert round(layout.pageHeight, 3) == round(800 / 144, 3)
+    assert map_frame.elementPositionX == 0
+    assert map_frame.elementPositionY == 0
+    assert map_frame.elementWidth == layout.pageWidth
+    assert map_frame.elementHeight == layout.pageHeight
+    assert layout.exported_resolution == 144
+    assert result["requested_output"]["width_px"] == 1200
+    assert result["requested_output"]["height_px"] == 800
+    assert result["requested_output"]["dpi"] == 144
+
+
+def test_arcpy_renderer_converts_requested_output_size_when_layout_uses_millimeters(tmp_path, monkeypatch):
+    """模板布局单位是毫米时，像素尺寸也应按 dpi 正确换算。"""
+    from app.gis.render import ArcPyRenderer
+
+    template_project = tmp_path / "template.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    fake_projects = []
+
+    def build_project(opened_path: str):
+        project = _FakeProject(opened_path)
+        project._layout.pageUnits = "MILLIMETER"
+        fake_projects.append(project)
+        return project
+
+    _install_fake_arcpy(monkeypatch, build_project)
+
+    result = ArcPyRenderer().render(
+        job_config=_job_config(tmp_path),
+        output_dir=tmp_path / "outputs",
+        template_project=template_project,
+    )
+
+    layout = fake_projects[0]._layout
+    map_frame = fake_projects[0]._map_frame
+    assert round(layout.pageWidth, 3) == round(1200 / 144 * 25.4, 3)
+    assert round(layout.pageHeight, 3) == round(800 / 144 * 25.4, 3)
+    assert map_frame.elementWidth == layout.pageWidth
+    assert map_frame.elementHeight == layout.pageHeight
+    assert result["requested_output"]["layout_page_units"] == "MILLIMETER"
+
+
 def test_arcpy_renderer_converts_geojson_and_station_excel(tmp_path, monkeypatch):
     """GeoJSON 和 Excel 应转换成 ArcGIS 可加载的临时要素类。"""
     from app.gis.render import ArcPyRenderer
@@ -532,6 +648,239 @@ def test_arcpy_renderer_applies_split_square_and_diamond_shapes(tmp_path, monkey
     diamond_geometry = layers["RedTriangleStations"].definition.renderer.symbol.symbol.symbolLayers[0].markerGraphics[0].geometry
     assert square_geometry["rings"][0] == [[-2.0, 2.0], [2.0, 2.0], [2.0, -2.0], [-2.0, -2.0], [-2.0, 2.0]]
     assert diamond_geometry["rings"][0] == [[0, 2.0], [2.0, 0], [0, -2.0], [-2.0, 0], [0, 2.0]]
+
+
+def test_arcpy_renderer_applies_rectangle_marker_shape(tmp_path, monkeypatch):
+    """rectangle 站点形状应写入比正方形更宽的 CIM 几何。"""
+    from app.gis.render import ArcPyRenderer
+
+    template_project = tmp_path / "template.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    fake_projects = []
+
+    def build_project(opened_path: str):
+        project = _FakeProject(opened_path)
+        fake_projects.append(project)
+        return project
+
+    _install_fake_arcpy(monkeypatch, build_project)
+    job_config = _job_config(tmp_path)
+    job_config["inputs"]["station_layers"][0]["symbol"] = {
+        "shape": "rectangle",
+        "color_preset": "green",
+        "size_pt": 18,
+    }
+
+    ArcPyRenderer().render(
+        job_config=job_config,
+        output_dir=tmp_path / "outputs",
+        template_project=template_project,
+    )
+
+    layers = {layer.name: layer for layer in fake_projects[0]._map.listLayers()}
+    rectangle_geometry = layers["GreenCircleStations"].definition.renderer.symbol.symbol.symbolLayers[0].markerGraphics[0].geometry
+    assert rectangle_geometry["rings"][0] == [[-3.0, 1.5], [3.0, 1.5], [3.0, -1.5], [-3.0, -1.5], [-3.0, 1.5]]
+
+
+def test_arcpy_renderer_applies_station_marker_rotation(tmp_path, monkeypatch):
+    """站点符号旋转应写到 symbol.rotation_deg，而不是标注文字配置。"""
+    from app.gis.render import ArcPyRenderer
+
+    template_project = tmp_path / "template.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    fake_projects = []
+
+    def build_project(opened_path: str):
+        project = _FakeProject(opened_path)
+        fake_projects.append(project)
+        return project
+
+    _install_fake_arcpy(monkeypatch, build_project)
+    job_config = _job_config(tmp_path)
+    job_config["inputs"]["station_layers"][0]["symbol"] = {
+        "shape": "triangle",
+        "color_preset": "red",
+        "size_pt": 18,
+        "rotation_deg": 35,
+    }
+
+    ArcPyRenderer().render(
+        job_config=job_config,
+        output_dir=tmp_path / "outputs",
+        template_project=template_project,
+    )
+
+    layers = {layer.name: layer for layer in fake_projects[0]._map.listLayers()}
+    marker_layer = layers["GreenCircleStations"].definition.renderer.symbol.symbol.symbolLayers[0]
+    assert marker_layer.angle == 35
+
+
+def test_arcpy_renderer_splits_one_station_excel_by_per_point_styles(tmp_path, monkeypatch):
+    """One station Excel should render separate internal layers for differently styled rows."""
+    from app.gis.render import ArcPyRenderer
+
+    template_project = tmp_path / "template.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    fake_projects = []
+
+    def build_project(opened_path: str):
+        project = _FakeProject(opened_path)
+        fake_projects.append(project)
+        return project
+
+    fake_arcpy = _install_fake_arcpy(monkeypatch, build_project)
+    job_config = _job_config(tmp_path)
+    job_config["inputs"]["station_layers"] = [job_config["inputs"]["station_layers"][0]]
+    job_config["inputs"]["station_layers"][0]["layer_name"] = "MixedStations"
+    job_config["inputs"]["station_layers"][0]["points"] = [
+        {
+            "row_number": 2,
+            "name": "Station A",
+            "symbol": {
+                "shape": "circle",
+                "color_preset": "green",
+                "color": "#00a651",
+                "size_pt": 20,
+                "rotation_deg": 0,
+            },
+            "label": {
+                "enabled": True,
+                "color": "#000000",
+                "font_size_pt": 20,
+                "position": "top_right",
+            },
+        },
+        {
+            "row_number": 3,
+            "name": "Station B",
+            "symbol": {
+                "shape": "triangle",
+                "color_preset": "red",
+                "color": "#ff0000",
+                "size_pt": 22,
+                "rotation_deg": 0,
+            },
+            "label": {
+                "enabled": True,
+                "color": "#111111",
+                "font_size_pt": 18,
+                "position": "left",
+            },
+        },
+    ]
+
+    result = ArcPyRenderer().render(
+        job_config=job_config,
+        output_dir=tmp_path / "outputs",
+        template_project=template_project,
+    )
+
+    assert result["status"] == "succeeded"
+    assert len(fake_arcpy._excel_calls) == 1
+    assert len(fake_arcpy._xy_calls) == 2
+    layers = [layer for layer in fake_projects[0]._map.listLayers() if layer.name.startswith("MixedStations")]
+    assert len(layers) == 2
+    assert layers[0].symbology.renderer.symbol.color == {"RGB": [0, 166, 81, 100]}
+    assert layers[1].symbology.renderer.symbol.color == {"RGB": [255, 0, 0, 100]}
+    assert layers[1].definition.renderer.symbol.symbol.symbolLayers[0].markerGraphics[0].geometry is not None
+    assert layers[1].definition.labelClasses[0].textSymbol.symbol.height == 18
+    assert "MixedStations - 1" in fake_projects[0]._map_frame.requested_extent_layers
+    assert "MixedStations - 2" in fake_projects[0]._map_frame.requested_extent_layers
+
+
+def test_arcpy_renderer_adds_padding_to_combined_map_extent(tmp_path, monkeypatch):
+    """Final map extent should include a buffer so edge features and labels are not clipped."""
+    from app.gis.render import ArcPyRenderer
+
+    template_project = tmp_path / "template.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    fake_projects = []
+
+    def build_project(opened_path: str):
+        project = _FakeProject(opened_path)
+        fake_projects.append(project)
+        return project
+
+    _install_fake_arcpy(monkeypatch, build_project)
+
+    ArcPyRenderer().render(
+        job_config=_job_config(tmp_path),
+        output_dir=tmp_path / "outputs",
+        template_project=template_project,
+    )
+
+    extent = fake_projects[0]._map_frame.camera.extents[-1]
+    assert extent.XMin < 0
+    assert extent.YMin < 0
+    assert extent.XMax > 10
+    assert extent.YMax > 10
+
+
+def test_arcpy_renderer_adds_multiple_basin_and_river_layers_with_independent_styles(tmp_path, monkeypatch):
+    """多流域和多河流配置应分别加载，并应用各自图层样式。"""
+    from app.gis.render import ArcPyRenderer
+
+    template_project = tmp_path / "template.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    second_basin = tmp_path / "basin_2.geojson"
+    second_river = tmp_path / "rivers_2.geojson"
+    second_basin.write_text("{}", encoding="utf-8")
+    second_river.write_text("{}", encoding="utf-8")
+    fake_projects = []
+
+    def build_project(opened_path: str):
+        project = _FakeProject(opened_path)
+        fake_projects.append(project)
+        return project
+
+    _install_fake_arcpy(monkeypatch, build_project)
+    job_config = _job_config(tmp_path)
+    job_config["inputs"]["basin_boundaries"] = [
+        {
+            "path": job_config["inputs"]["basin_boundary"]["path"],
+            "layer_name": "上游流域",
+            "style": {
+                "basin_boundary": {"color": "#111111", "width_pt": 1.1},
+                "basin_fill": {"color": "#e6f0d4", "opacity": 0.45},
+            },
+        },
+        {
+            "path": str(second_basin),
+            "layer_name": "下游流域",
+            "style": {
+                "basin_boundary": {"color": "#7a4f2a", "width_pt": 0.8},
+                "basin_fill": {"color": "#f6d7a7", "opacity": 0.35},
+            },
+        },
+    ]
+    job_config["inputs"]["river_networks"] = [
+        {
+            "path": job_config["inputs"]["river_network"]["path"],
+            "layer_name": "主干河流",
+            "style": {"river_network": {"color": "#2f80ed", "width_pt": 2.5}},
+        },
+        {
+            "path": str(second_river),
+            "layer_name": "支流",
+            "style": {"river_network": {"color": "#00a6c8", "width_pt": 1.2}},
+        },
+    ]
+
+    ArcPyRenderer().render(
+        job_config=job_config,
+        output_dir=tmp_path / "outputs",
+        template_project=template_project,
+    )
+
+    layers = {layer.name: layer for layer in fake_projects[0]._map.listLayers()}
+    assert "上游流域" in layers
+    assert "下游流域" in layers
+    assert "主干河流" in layers
+    assert "支流" in layers
+    assert layers["下游流域"].symbology.renderer.symbol.color == {"RGB": [246, 215, 167, 35]}
+    assert layers["下游流域"].symbology.renderer.symbol.outlineColor == {"RGB": [122, 79, 42, 100]}
+    assert layers["支流"].symbology.renderer.symbol.color == {"RGB": [0, 166, 200, 100]}
+    assert layers["支流"].symbology.renderer.symbol.size == 1.2
 
 
 def test_arcpy_renderer_writes_structured_failure_when_template_items_missing(tmp_path, monkeypatch):
