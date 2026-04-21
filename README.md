@@ -1,13 +1,20 @@
 # GIS Flask Study Backend
 
-这是一个简化后的快速出图 Web App。它简化了繁杂且缓慢的 ArcGIS Pro 操作步骤，方便水文水利行业工作者在编制报告时快速生成流域效果图。
+这是一个简化后的快速出图 Web App。它简化了繁杂且缓慢的 ArcGIS Pro 操作步骤，方便水文水利行业工作者在编制报告时快速生成流域效果图。可能在配置环境会有一点点复杂（没办法，要怪就怪arcgis），但是可以用claude code或者codex等工具就简单啦，刷会儿抖音等一下吧。
 
 前提准备：
 
 1. ArcGIS Pro 3.0.1 及以上。
 2. ArcGIS Pro 的 `.aprx` 模板文件，也就是工程文件。需要提前在工程中创建好地图和布局（预制菜），因为 ArcGIS Pro 3.0 版本的 ArcPy 没有生成地图和布局的能力。
+
+   ![aprx_1](docs/readme-assets/aprx_1.png)
+   ![aprx_2](docs/readme-assets/aprx_2.png)
 3. 流域边界、河流、站点 Excel 文件。
 
+为什么要用这个web app而不直接用arcgis pro：
+1. 速度更快，操作方便，小白也能轻松上手，在上面数据准备好的情况下，出图仅几秒。
+2. 可以任意调节每个点的形状样式、大小，甚至可以旋转（水文中经常需要将站点旋转到垂直于河流方向）
+  ![points](docs\readme-assets\points.png)
 ## 快速使用 Web App
 
 这个项目现在包含一个浏览器工作台：前端负责上传数据、配置样式和提交出图；后端用 Flask 接收请求，并在同一个 ArcGIS Pro Python 进程里调用 ArcPy 导出 `map.png`。
