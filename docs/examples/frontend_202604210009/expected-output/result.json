@@ -1,0 +1,26 @@
+{
+  "status": "succeeded",
+  "output_png": "D:\\work\\2026\\code\\life\\gis_flask_study\\output\\frontend_202604210009\\map.png",
+  "result_json": "D:\\work\\2026\\code\\life\\gis_flask_study\\output\\frontend_202604210009\\result.json",
+  "feature_counts": {
+    "station_layers": 1
+  },
+  "warnings": [
+    "layout title element named '标题' was not found; map_title was not applied.",
+    "legend is enabled, but no legend element exists in the template layout.",
+    "scale bar is enabled, but no scale bar element exists in the template layout."
+  ],
+  "elapsed_seconds": 19.021,
+  "copied_project": "D:\\work\\2026\\code\\life\\gis_flask_study\\output\\frontend_202604210009\\gistool_test.aprx",
+  "requested_title": "Basin river network map",
+  "requested_output": {
+    "width_px": 1600,
+    "height_px": 1200,
+    "dpi": 150,
+    "page_width_in": 10.666667,
+    "page_height_in": 8.0,
+    "layout_page_width": 270.933333,
+    "layout_page_height": 203.2,
+    "layout_page_units": "MILLIMETER"
+  }
+}

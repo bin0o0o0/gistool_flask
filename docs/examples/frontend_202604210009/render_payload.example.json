@@ -1,0 +1,134 @@
+{
+  "template_project": "docs/examples/frontend_202604210009/inputs/template_project/gistool_test.aprx",
+  "output_dir": "example_frontend_202604210009",
+  "map_title": "Basin river network map",
+  "output": {
+    "width_px": 1600,
+    "height_px": 1200,
+    "dpi": 150
+  },
+  "inputs": {
+    "basin_boundary": {
+      "path": "docs/examples/frontend_202604210009/inputs/basin_boundary/basin_boundary.shp"
+    },
+    "river_network": {
+      "path": "docs/examples/frontend_202604210009/inputs/river_network/river_network.shp"
+    },
+    "station_layers": [
+      {
+        "path": "docs/examples/frontend_202604210009/inputs/station_points/per_point_stations.xlsx",
+        "sheet_name": "Sheet1",
+        "x_field": "lon",
+        "y_field": "lat",
+        "name_field": "name",
+        "layer_name": "Per Point Stations",
+        "symbol": {
+          "shape": "circle",
+          "color_preset": "green",
+          "color": "#00a651",
+          "size_pt": 20,
+          "rotation_deg": 0
+        },
+        "label": {
+          "enabled": true,
+          "color": "#000000",
+          "font_size_pt": 20,
+          "position": "top_right"
+        },
+        "points": [
+          {
+            "row_number": 2,
+            "name": "Station Alpha",
+            "symbol": {
+              "shape": "triangle",
+              "color_preset": "red",
+              "color": "#ff0000",
+              "size_pt": 40,
+              "rotation_deg": 35
+            },
+            "label": {
+              "enabled": true,
+              "color": "#000000",
+              "font_size_pt": 20,
+              "position": "top_right"
+            }
+          },
+          {
+            "row_number": 3,
+            "name": "Station Beta",
+            "symbol": {
+              "shape": "rectangle",
+              "color_preset": "green",
+              "color": "#00a651",
+              "size_pt": 28,
+              "rotation_deg": 0
+            },
+            "label": {
+              "enabled": true,
+              "color": "#000000",
+              "font_size_pt": 20,
+              "position": "top_right"
+            }
+          },
+          {
+            "row_number": 4,
+            "name": "Station Alpha",
+            "symbol": {
+              "shape": "diamond",
+              "color_preset": "purple",
+              "color": "#8e5cff",
+              "size_pt": 24,
+              "rotation_deg": 25
+            },
+            "label": {
+              "enabled": true,
+              "color": "#000000",
+              "font_size_pt": 20,
+              "position": "top_right"
+            }
+          },
+          {
+            "row_number": 5,
+            "name": "Station Delta",
+            "symbol": {
+              "shape": "circle",
+              "color_preset": "green",
+              "color": "#00a651",
+              "size_pt": 20,
+              "rotation_deg": 0
+            },
+            "label": {
+              "enabled": true,
+              "color": "#000000",
+              "font_size_pt": 20,
+              "position": "top_right"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "layout": {
+    "basemap": "Topographic",
+    "legend": {
+      "enabled": true
+    },
+    "scale_bar": {
+      "enabled": true
+    }
+  },
+  "style": {
+    "basin_boundary": {
+      "color": "#222222",
+      "width_pt": 1.2
+    },
+    "basin_fill": {
+      "color": "#f5d8c8",
+      "opacity": 0.45
+    },
+    "river_network": {
+      "color": "#2f80ed",
+      "width_pt": 2.5
+    }
+  }
+}
