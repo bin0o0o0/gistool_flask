@@ -1,6 +1,6 @@
 # GIS Flask Study Backend
 
-这是一个简化后的快速出图 Web App。它简化了繁杂且缓慢的 ArcGIS Pro 操作步骤，方便水文水利行业工作者在编制报告时快速生成流域效果图。可能在配置环境会有一点点复杂（没办法，要怪就怪arcgis），但是可以用claude code或者codex等工具就简单啦，刷会儿抖音等一下吧。
+这是一个简化后的快速出图 Web App。它简化了繁杂且缓慢的 ArcGIS Pro 操作步骤，方便水文水利行业工作者在编制报告时快速生成流域效果图。可能在配置环境会有一点点复杂（没办法，要怪就怪arcgis），但是可以用claude code或者codex等工具就简单啦，刷会儿抖音等一下就行了。后续会继续优化，敬请期待。
 
 前提准备：
 
@@ -30,6 +30,7 @@ cd D:\work\2026\code\life\gis_flask_study
 & "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" backend\run.py
 ```
 
+"D:\work\2026\code\life\gis_flask_study"这个是你github项目部署的位置，"C:\Program Files\ArcGIS\Pro\"这个是你arcgis pro下载的位置。
 如果你的电脑更习惯直接调用 ArcGIS Pro 环境里的 `python.exe`，也可以这样启动：
 
 ```powershell
