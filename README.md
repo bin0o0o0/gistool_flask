@@ -14,7 +14,7 @@
 为什么要用这个web app而不直接用arcgis pro：
 1. 速度更快，操作方便，小白也能轻松上手，在上面数据准备好的情况下，出图仅几秒。
 2. 可以任意调节每个点的形状样式、大小，甚至可以旋转（水文中经常需要将站点旋转到垂直于河流方向）
-  ![points](docs\readme-assets\points.png)
+  ![points](docs/readme-assets/points.png)
 3. 自由程度高。output中还有更改后的.aprx文件，更改全程在.aprx工程副本中，出结果后可以再用arcgis pro对结果进行一些微调。
 
 
@@ -150,7 +150,7 @@ output/frontend_202604210009/
 
 下面是 `frontend_202604210009` 的示例结果，4 个站点来自同一个 Excel，但每个点使用了不同的符号样式：
 
-![逐点站点样式出图结果](docs\readme-assets\map.png)
+![逐点站点样式出图结果](docs/readme-assets/map.png)
 
 ### 常见问题
 
