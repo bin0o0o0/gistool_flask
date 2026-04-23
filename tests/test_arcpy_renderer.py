@@ -213,13 +213,15 @@ class _FakeMapFrame:
     """模拟布局里的地图框。"""
 
     def __init__(self, fake_map: _FakeMap) -> None:
+        self.type = "MAPFRAME_ELEMENT"
         self.name = "地图框"
+        self.visible = True
         self.camera = _FakeCamera()
         self.requested_extent_layers: list[str] = []
-        self.elementPositionX = None
-        self.elementPositionY = None
-        self.elementWidth = None
-        self.elementHeight = None
+        self.elementPositionX = 1
+        self.elementPositionY = 1
+        self.elementWidth = 9
+        self.elementHeight = 6
 
     def getLayerExtent(self, layer, *_args):
         # 真实 ArcPy 会计算图层范围；fake 直接返回 layer.extent。
@@ -227,11 +229,39 @@ class _FakeMapFrame:
         return layer.extent
 
 
+class _FakeLayoutElement:
+    """模拟布局里的标题、图例、比例尺、指北针。"""
+
+    def __init__(
+        self,
+        element_type: str,
+        name: str,
+        *,
+        text: str | None = None,
+        x: float = 0,
+        y: float = 0,
+        width: float = 1,
+        height: float = 1,
+    ) -> None:
+        self.type = element_type
+        self.name = name
+        self.text = text
+        self.visible = True
+        self.elementPositionX = x
+        self.elementPositionY = y
+        self.elementWidth = width
+        self.elementHeight = height
+        self.textSize = 10
+        self.background_color = None
+        self.fittingStrategy = None
+
+
 class _FakeLayout:
     """模拟 Layout 对象。"""
 
-    def __init__(self, map_frame: _FakeMapFrame | None) -> None:
+    def __init__(self, map_frame: _FakeMapFrame | None, elements: list[_FakeLayoutElement] | None = None) -> None:
         self._map_frame = map_frame
+        self._elements = elements or []
         self.exported_png: str | None = None
         self.exported_resolution: int | None = None
         self.pageWidth = 11
@@ -239,13 +269,16 @@ class _FakeLayout:
         self.pageUnits = "INCH"
 
     def listElements(self, element_type=None, wildcard=None):
-        # 当前渲染器主要查找 MAPFRAME_ELEMENT。
-        # 标题/图例/比例尺在 fake 中故意返回空，用来产生 warnings。
+        elements = []
         if element_type == "MAPFRAME_ELEMENT":
-            if self._map_frame is None or (wildcard and wildcard != self._map_frame.name):
-                return []
-            return [self._map_frame]
-        return []
+            elements = [] if self._map_frame is None else [self._map_frame]
+        elif element_type is None:
+            elements = ([] if self._map_frame is None else [self._map_frame]) + list(self._elements)
+        else:
+            elements = [element for element in self._elements if element.type == element_type]
+        if wildcard:
+            elements = [element for element in elements if element.name == wildcard]
+        return elements
 
     def exportToPNG(self, path: str, resolution: int = 96):
         # 真实 ArcPy 会导出图片；fake 只写一个字节文件表示“导出发生了”。
@@ -257,11 +290,17 @@ class _FakeLayout:
 class _FakeProject:
     """模拟 arcpy.mp.ArcGISProject。"""
 
-    def __init__(self, opened_path: str, *, include_map_frame: bool = True) -> None:
+    def __init__(
+        self,
+        opened_path: str,
+        *,
+        include_map_frame: bool = True,
+        layout_elements: list[_FakeLayoutElement] | None = None,
+    ) -> None:
         self.opened_path = opened_path
         self._map = _FakeMap()
         self._map_frame = _FakeMapFrame(self._map) if include_map_frame else None
-        self._layout = _FakeLayout(self._map_frame)
+        self._layout = _FakeLayout(self._map_frame, layout_elements)
 
     def listMaps(self, wildcard=None):
         # 只有名称匹配“地图”时才返回 fake map，模拟模板名称约束。
@@ -443,7 +482,12 @@ def _job_config(tmp_path: Path) -> dict:
                 },
             ],
         },
-        "layout": {"legend": {"enabled": True}, "scale_bar": {"enabled": True}},
+        "layout": {
+            "title": {"enabled": True},
+            "legend": {"enabled": True},
+            "scale_bar": {"enabled": True},
+            "north_arrow": {"enabled": True},
+        },
         "style": {
             "basin_boundary": {"color": "#222222", "width_pt": 1.2},
             "basin_fill": {"color": "#e6f0d4", "opacity": 0.45},
@@ -483,8 +527,8 @@ def test_arcpy_renderer_copies_template_and_exports_png(tmp_path, monkeypatch):
     assert (output_dir / "result.json").exists()
 
 
-def test_arcpy_renderer_applies_requested_output_pixel_size_to_layout(tmp_path, monkeypatch):
-    """width_px/height_px/dpi 应转换成布局页面尺寸，并让地图框铺满页面。"""
+def test_arcpy_renderer_applies_requested_output_pixel_size_and_scales_layout_elements(tmp_path, monkeypatch):
+    """width_px/height_px/dpi 应转换页面尺寸，并保留模板地图框的大区域。"""
     from app.gis.render import ArcPyRenderer
 
     template_project = tmp_path / "template.aprx"
@@ -508,14 +552,48 @@ def test_arcpy_renderer_applies_requested_output_pixel_size_to_layout(tmp_path, 
     map_frame = fake_projects[0]._map_frame
     assert round(layout.pageWidth, 3) == round(1200 / 144, 3)
     assert round(layout.pageHeight, 3) == round(800 / 144, 3)
-    assert map_frame.elementPositionX == 0
-    assert map_frame.elementPositionY == 0
-    assert map_frame.elementWidth == layout.pageWidth
-    assert map_frame.elementHeight == layout.pageHeight
+    assert round(map_frame.elementPositionX, 3) == round(1 * (layout.pageWidth / 11), 3)
+    assert round(map_frame.elementPositionY, 3) == round(1 * (layout.pageHeight / 8.5), 3)
+    assert round(map_frame.elementWidth, 3) == round(9 * (layout.pageWidth / 11), 3)
+    assert round(map_frame.elementHeight, 3) == round(6 * (layout.pageHeight / 8.5), 3)
     assert layout.exported_resolution == 144
     assert result["requested_output"]["width_px"] == 1200
     assert result["requested_output"]["height_px"] == 800
     assert result["requested_output"]["dpi"] == 144
+
+
+def test_arcpy_renderer_tunes_legend_items_to_uniform_small_patches():
+    """图例里的站点大符号应缩进统一 patch，避免比流域和河流图样大很多。"""
+    from types import SimpleNamespace
+
+    from app.gis.render import arcpy_renderer
+
+    legend = SimpleNamespace(
+        scaleSymbols=True,
+        autoFonts=False,
+        minFontSize=6,
+        defaultPatchHeight=12,
+        defaultPatchWidth=24,
+        itemGap=5,
+        classGap=5,
+        layerNameGap=5,
+        patchGap=5,
+        textGap=5,
+        items=[
+            SimpleNamespace(patchHeight=0, patchWidth=0, scaleToPatch=False),
+            SimpleNamespace(patchHeight=0, patchWidth=0, scaleToPatch=False),
+            SimpleNamespace(patchHeight=0, patchWidth=0, scaleToPatch=False),
+        ],
+    )
+
+    arcpy_renderer._tune_cim_legend_element(legend)
+
+    assert legend.scaleSymbols is False
+    assert legend.defaultPatchHeight == 6
+    assert legend.defaultPatchWidth == 12
+    assert all(item.scaleToPatch is True for item in legend.items)
+    assert all(item.patchHeight == 6 for item in legend.items)
+    assert all(item.patchWidth == 12 for item in legend.items)
 
 
 def test_arcpy_renderer_converts_requested_output_size_when_layout_uses_millimeters(tmp_path, monkeypatch):
@@ -544,9 +622,153 @@ def test_arcpy_renderer_converts_requested_output_size_when_layout_uses_millimet
     map_frame = fake_projects[0]._map_frame
     assert round(layout.pageWidth, 3) == round(1200 / 144 * 25.4, 3)
     assert round(layout.pageHeight, 3) == round(800 / 144 * 25.4, 3)
-    assert map_frame.elementWidth == layout.pageWidth
-    assert map_frame.elementHeight == layout.pageHeight
+    assert round(map_frame.elementWidth, 3) == round(9 * (layout.pageWidth / 11), 3)
+    assert round(map_frame.elementHeight, 3) == round(6 * (layout.pageHeight / 8.5), 3)
     assert result["requested_output"]["layout_page_units"] == "MILLIMETER"
+
+
+def test_arcpy_renderer_updates_template_layout_elements_and_title_fallback(tmp_path, monkeypatch):
+    """模板中已有的标题/图例/比例尺/指北针元素应被按请求更新。"""
+    from app.gis.render import ArcPyRenderer
+
+    template_project = tmp_path / "template.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    fake_projects = []
+    title = _FakeLayoutElement("TEXT_ELEMENT", "文本", text="图名", x=2, y=7, width=4, height=0.5)
+    legend = _FakeLayoutElement("LEGEND_ELEMENT", "图例", x=8, y=1, width=2, height=3)
+    scale_bar = _FakeLayoutElement("MAPSURROUND_ELEMENT", "比例尺", x=1, y=0.3, width=2, height=0.4)
+    north_arrow = _FakeLayoutElement("MAPSURROUND_ELEMENT", "指北针", x=7, y=6, width=0.5, height=1)
+
+    def build_project(opened_path: str):
+        project = _FakeProject(opened_path, layout_elements=[title, legend, scale_bar, north_arrow])
+        fake_projects.append(project)
+        return project
+
+    _install_fake_arcpy(monkeypatch, build_project)
+
+    ArcPyRenderer().render(
+        job_config=_job_config(tmp_path),
+        output_dir=tmp_path / "outputs",
+        template_project=template_project,
+    )
+
+    layout = fake_projects[0]._layout
+    assert title.text == "styled map"
+    assert title.visible is True
+    assert legend.visible is True
+    assert scale_bar.visible is True
+    assert north_arrow.visible is True
+    assert round(title.elementPositionX, 3) == round(layout.pageWidth * 0.36, 3)
+    assert round(title.elementPositionY, 3) == round(layout.pageHeight * 0.86, 3)
+    assert round(title.elementWidth, 3) == round(layout.pageWidth * 0.28, 3)
+    assert round(title.elementHeight, 3) == round(layout.pageHeight * 0.055, 3)
+    assert title.textSize == 18
+    assert title.background_color == "#ffffff"
+    assert round(legend.elementPositionX, 3) == round(layout.pageWidth * 0.045, 3)
+    assert round(legend.elementPositionY, 3) == round(layout.pageHeight * 0.42, 3)
+    assert round(legend.elementWidth, 3) == round(layout.pageWidth * 0.22, 3)
+    assert round(legend.elementHeight, 3) == round(layout.pageHeight * 0.38, 3)
+    assert legend.fittingStrategy == "AdjustColumnsAndFont"
+    assert legend.background_color == "#ffffff"
+    assert round(scale_bar.elementPositionX, 3) == round(layout.pageWidth * 0.31, 3)
+    assert round(scale_bar.elementPositionY, 3) == round(layout.pageHeight * 0.055, 3)
+    assert round(scale_bar.elementWidth, 3) == round(layout.pageWidth * 0.34, 3)
+    assert round(scale_bar.elementHeight, 3) == round(layout.pageHeight * 0.035, 3)
+    assert round(north_arrow.elementPositionX, 3) == round(layout.pageWidth * 0.92, 3)
+    assert round(north_arrow.elementPositionY, 3) == round(layout.pageHeight * 0.78, 3)
+    assert round(north_arrow.elementWidth, 3) == round(layout.pageWidth * 0.035, 3)
+    assert round(north_arrow.elementHeight, 3) == round(layout.pageHeight * 0.08, 3)
+
+
+def test_arcpy_renderer_applies_manual_layout_element_positions(tmp_path, monkeypatch):
+    """manual 布局应按请求里的绝对布局单位设置元素位置和大小。"""
+    from app.gis.render import ArcPyRenderer
+
+    template_project = tmp_path / "template.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    fake_projects = []
+    title = _FakeLayoutElement("TEXT_ELEMENT", "文本", text="图名")
+    legend = _FakeLayoutElement("LEGEND_ELEMENT", "图例")
+    scale_bar = _FakeLayoutElement("MAPSURROUND_ELEMENT", "比例尺")
+    north_arrow = _FakeLayoutElement("MAPSURROUND_ELEMENT", "指北针")
+
+    def build_project(opened_path: str):
+        project = _FakeProject(opened_path, layout_elements=[title, legend, scale_bar, north_arrow])
+        fake_projects.append(project)
+        return project
+
+    _install_fake_arcpy(monkeypatch, build_project)
+    job_config = _job_config(tmp_path)
+    job_config["layout"] = {
+        "basemap": "Topographic",
+        "mode": "manual",
+        "elements": {
+            "map_frame": {"x": 10, "y": 11, "width": 120, "height": 80},
+            "title": {
+                "enabled": True,
+                "x": 20,
+                "y": 170,
+                "width": 80,
+                "height": 12,
+                "font_size": 16,
+                "background": True,
+            },
+            "legend": {"enabled": True, "x": 12, "y": 90, "width": 60, "height": 70, "background": True},
+            "scale_bar": {"enabled": True, "x": 85, "y": 12, "width": 90, "height": 8},
+            "north_arrow": {"enabled": True, "x": 240, "y": 160, "width": 8, "height": 18},
+        },
+    }
+
+    ArcPyRenderer().render(
+        job_config=job_config,
+        output_dir=tmp_path / "outputs",
+        template_project=template_project,
+    )
+
+    map_frame = fake_projects[0]._map_frame
+    assert (map_frame.elementPositionX, map_frame.elementPositionY) == (10, 11)
+    assert (map_frame.elementWidth, map_frame.elementHeight) == (120, 80)
+    assert (title.elementPositionX, title.elementPositionY) == (20, 170)
+    assert (title.elementWidth, title.elementHeight) == (80, 12)
+    assert title.textSize == 16
+    assert (legend.elementPositionX, legend.elementPositionY) == (12, 90)
+    assert (scale_bar.elementWidth, scale_bar.elementHeight) == (90, 8)
+    assert (north_arrow.elementPositionX, north_arrow.elementPositionY) == (240, 160)
+
+
+def test_arcpy_renderer_hides_disabled_layout_elements(tmp_path, monkeypatch):
+    """关闭布局元素开关时，应隐藏模板中对应元素。"""
+    from app.gis.render import ArcPyRenderer
+
+    template_project = tmp_path / "template.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    title = _FakeLayoutElement("TEXT_ELEMENT", "标题", text="图名")
+    legend = _FakeLayoutElement("LEGEND_ELEMENT", "图例")
+    scale_bar = _FakeLayoutElement("MAPSURROUND_ELEMENT", "比例尺")
+    north_arrow = _FakeLayoutElement("MAPSURROUND_ELEMENT", "指北针")
+
+    def build_project(opened_path: str):
+        return _FakeProject(opened_path, layout_elements=[title, legend, scale_bar, north_arrow])
+
+    _install_fake_arcpy(monkeypatch, build_project)
+    job_config = _job_config(tmp_path)
+    job_config["layout"] = {
+        "title": {"enabled": False},
+        "legend": {"enabled": False},
+        "scale_bar": {"enabled": False},
+        "north_arrow": {"enabled": False},
+    }
+
+    ArcPyRenderer().render(
+        job_config=job_config,
+        output_dir=tmp_path / "outputs",
+        template_project=template_project,
+    )
+
+    assert title.visible is False
+    assert legend.visible is False
+    assert scale_bar.visible is False
+    assert north_arrow.visible is False
 
 
 def test_arcpy_renderer_converts_geojson_and_station_excel(tmp_path, monkeypatch):
@@ -789,7 +1011,7 @@ def test_arcpy_renderer_splits_one_station_excel_by_per_point_styles(tmp_path, m
 
 
 def test_arcpy_renderer_adds_padding_to_combined_map_extent(tmp_path, monkeypatch):
-    """Final map extent should include a buffer so edge features and labels are not clipped."""
+    """Final map extent should use the approved balanced default padding."""
     from app.gis.render import ArcPyRenderer
 
     template_project = tmp_path / "template.aprx"
@@ -810,10 +1032,40 @@ def test_arcpy_renderer_adds_padding_to_combined_map_extent(tmp_path, monkeypatc
     )
 
     extent = fake_projects[0]._map_frame.camera.extents[-1]
-    assert extent.XMin < 0
-    assert extent.YMin < 0
-    assert extent.XMax > 10
-    assert extent.YMax > 10
+    assert round(extent.XMin, 3) == -2.408
+    assert round(extent.YMin, 3) == -1.4
+    assert round(extent.XMax, 3) == 11.808
+    assert round(extent.YMax, 3) == 11.4
+
+
+def test_arcpy_renderer_uses_manual_map_extent(tmp_path, monkeypatch):
+    """map_view.manual_extent 应完全覆盖自动图层范围。"""
+    from app.gis.render import ArcPyRenderer
+
+    template_project = tmp_path / "template.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    fake_projects = []
+
+    def build_project(opened_path: str):
+        project = _FakeProject(opened_path)
+        fake_projects.append(project)
+        return project
+
+    _install_fake_arcpy(monkeypatch, build_project)
+    job_config = _job_config(tmp_path)
+    job_config["map_view"] = {
+        "mode": "manual_extent",
+        "extent": {"xmin": 90.5, "ymin": 30.25, "xmax": 110.75, "ymax": 45.5},
+    }
+
+    ArcPyRenderer().render(
+        job_config=job_config,
+        output_dir=tmp_path / "outputs",
+        template_project=template_project,
+    )
+
+    extent = fake_projects[0]._map_frame.camera.extents[-1]
+    assert (extent.XMin, extent.YMin, extent.XMax, extent.YMax) == (90.5, 30.25, 110.75, 45.5)
 
 
 def test_arcpy_renderer_adds_multiple_basin_and_river_layers_with_independent_styles(tmp_path, monkeypatch):

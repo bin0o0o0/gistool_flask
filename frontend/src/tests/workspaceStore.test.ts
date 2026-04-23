@@ -37,6 +37,32 @@ describe('workspace store navigation', () => {
     expect(store.activeStep).toBe('stations')
   })
 
+  it('uses the approved manual layout defaults from frontend_20260423-8', () => {
+    const store = useWorkspaceStore()
+
+    expect(store.form.layout.elements.title).toMatchObject({
+      x: 97.54,
+      y: 188,
+      width: 69.86,
+      height: 11.18,
+      font_size: 20
+    })
+    expect(store.form.layout.elements.legend).toMatchObject({
+      x: 12.19,
+      y: 45.34,
+      width: 59.61,
+      height: 77.22
+    })
+    expect(store.form.layout.legend_style.patch_width).toBe(12)
+    expect(store.form.layout.legend_style.patch_height).toBe(6)
+    expect(store.form.map_view.padding).toMatchObject({
+      left: 0.2408,
+      right: 0.1808,
+      top: 0.14,
+      bottom: 0.14
+    })
+  })
+
   it('marks sidebar steps ready from configured form state', () => {
     const store = useWorkspaceStore()
 

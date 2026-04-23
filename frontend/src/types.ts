@@ -114,13 +114,77 @@ export interface WorkspaceForm {
   }
   layout: {
     basemap: string
+    mode: 'manual'
+    title: { enabled: boolean }
     legend: { enabled: boolean }
     scale_bar: { enabled: boolean }
+    north_arrow: { enabled: boolean }
+    elements: {
+      map_frame: LayoutBoxForm
+      title: LayoutTextElementForm
+      legend: LayoutElementForm & { background: boolean }
+      scale_bar: LayoutElementForm
+      north_arrow: LayoutElementForm
+    }
+    legend_style: LegendStyleForm
   }
+  map_view: MapViewForm
   style: {
     basin_boundary: { color: string; width_pt: number }
     basin_fill: { color: string; opacity: number }
     river_network: { color: string; width_pt: number }
+  }
+}
+
+export interface LayoutBoxForm {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface LayoutElementForm extends LayoutBoxForm {
+  enabled: boolean
+}
+
+export interface LayoutTextElementForm extends LayoutElementForm {
+  font_size: number
+  background: boolean
+}
+
+export interface LegendStyleForm {
+  scale_symbols: boolean
+  patch_width: number
+  patch_height: number
+  scale_to_patch: boolean
+  item_gap: number
+  class_gap: number
+  layer_name_gap: number
+  patch_gap: number
+  text_gap: number
+  min_font_size: number
+  auto_fonts: boolean
+  background: {
+    enabled: boolean
+    color: string
+    gap_x: number
+    gap_y: number
+  }
+}
+
+export interface MapViewForm {
+  mode: 'auto' | 'auto_padding' | 'manual_extent'
+  padding: {
+    left: number
+    right: number
+    top: number
+    bottom: number
+  }
+  extent: {
+    xmin: number
+    ymin: number
+    xmax: number
+    ymax: number
   }
 }
 

@@ -507,10 +507,13 @@ file: 用户选择的文件
 Map: 地图
 Layout: 布局
 Map Frame: 地图框
-Title text element: 标题
+Title text element: 标题（兼容现有模板里的“文本”）
+Legend element: 图例
+Scale bar element: 比例尺
+North arrow element: 指北针
 ```
 
-标题、图例、比例尺这些布局元素暂时不是强制项。如果模板里没有，出图仍会继续，缺失信息会写入 `result.json.warnings`。
+图例、比例尺、指北针必须使用 ArcGIS Pro 原生布局元素，不要用普通图形或文字手动画。页面的“人工布局坐标”会把标题、图例、比例尺、指北针和地图框的 `x/y/宽/高` 原样传给后端，后端按模板布局单位写入 APRX；图例内部默认使用 `12 x 6` 的统一图样尺寸，并保留白色背景。地图视角可以选择自动范围、自动范围加四边留白，或手动输入 `xmin/ymin/xmax/ymax`。比例尺会在后端设置地图框范围后，由 ArcGIS Pro 根据最终地图框自动计算。模板中缺少任一布局元素时，出图仍会继续，缺失信息会写入 `result.json.warnings`。
 
 ## 测试
 

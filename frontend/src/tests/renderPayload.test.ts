@@ -168,8 +168,42 @@ function sampleForm(): WorkspaceForm {
     },
     layout: {
       basemap: 'Topographic',
+      mode: 'manual',
+      title: { enabled: true },
       legend: { enabled: true },
-      scale_bar: { enabled: true }
+      scale_bar: { enabled: true },
+      north_arrow: { enabled: false },
+      elements: {
+        map_frame: { x: 6.53, y: 7.31, width: 257.15, height: 191.01 },
+        title: { enabled: true, x: 97.54, y: 174.75, width: 75.86, height: 11.18, font_size: 18, background: true },
+        legend: { enabled: true, x: 12.19, y: 85.34, width: 59.61, height: 77.22, background: true },
+        scale_bar: { enabled: true, x: 83.99, y: 11.18, width: 92.12, height: 7.11 },
+        north_arrow: { enabled: false, x: 249.26, y: 158.5, width: 7.04, height: 16.26 }
+      },
+      legend_style: {
+        scale_symbols: false,
+        patch_width: 12,
+        patch_height: 6,
+        scale_to_patch: true,
+        item_gap: 2,
+        class_gap: 2,
+        layer_name_gap: 2,
+        patch_gap: 2,
+        text_gap: 2,
+        min_font_size: 5,
+        auto_fonts: true,
+        background: {
+          enabled: true,
+          color: '#ffffff',
+          gap_x: 1,
+          gap_y: 1
+        }
+      }
+    },
+    map_view: {
+      mode: 'auto_padding',
+      padding: { left: 0.46, right: 0.14, top: 0.14, bottom: 0.5667 },
+      extent: { xmin: 0, ymin: 0, xmax: 10, ymax: 10 }
     },
     style: {
       basin_boundary: { color: '#222222', width_pt: 1.2 },
@@ -198,5 +232,16 @@ describe('buildRenderPayload', () => {
     expect(payload.inputs.station_layers[0].points[0].row_number).toBe(2)
     expect(payload.inputs.station_layers[0].points[1].symbol.shape).toBe('triangle')
     expect(payload.inputs.station_layers[0].points[1].label.position).toBe('left')
+    expect(payload.layout.title.enabled).toBe(true)
+    expect(payload.layout.legend.enabled).toBe(true)
+    expect(payload.layout.scale_bar.enabled).toBe(true)
+    expect(payload.layout.north_arrow.enabled).toBe(false)
+    expect(payload.layout.mode).toBe('manual')
+    expect(payload.layout.elements.title.x).toBe(97.54)
+    expect(payload.layout.elements.map_frame.width).toBe(257.15)
+    expect(payload.layout.legend_style.patch_width).toBe(12)
+    expect(payload.layout.legend_style.patch_height).toBe(6)
+    expect(payload.map_view.mode).toBe('auto_padding')
+    expect(payload.map_view.padding.left).toBe(0.46)
   })
 })

@@ -86,13 +86,23 @@ export function buildRenderPayload(form: WorkspaceForm) {
     },
     layout: {
       basemap: form.layout.basemap,
+      mode: form.layout.mode,
+      title: {
+        enabled: form.layout.elements.title.enabled
+      },
       legend: {
-        enabled: form.layout.legend.enabled
+        enabled: form.layout.elements.legend.enabled
       },
       scale_bar: {
-        enabled: form.layout.scale_bar.enabled
-      }
+        enabled: form.layout.elements.scale_bar.enabled
+      },
+      north_arrow: {
+        enabled: form.layout.elements.north_arrow.enabled
+      },
+      elements: form.layout.elements,
+      legend_style: form.layout.legend_style
     },
+    map_view: form.map_view,
     style: {
       basin_boundary: {
         color: form.style.basin_boundary.color,

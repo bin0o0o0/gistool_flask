@@ -133,8 +133,42 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     },
     layout: {
       basemap: 'Topographic',
+      mode: 'manual',
+      title: { enabled: true },
       legend: { enabled: true },
-      scale_bar: { enabled: true }
+      scale_bar: { enabled: true },
+      north_arrow: { enabled: true },
+      elements: {
+        map_frame: { x: 6.53, y: 7.31, width: 257.15, height: 191.01 },
+        title: { enabled: true, x: 97.54, y: 188, width: 69.86, height: 11.18, font_size: 20, background: true },
+        legend: { enabled: true, x: 12.19, y: 45.34, width: 59.61, height: 77.22, background: true },
+        scale_bar: { enabled: true, x: 83.99, y: 11.18, width: 92.12, height: 7.11 },
+        north_arrow: { enabled: true, x: 249.26, y: 158.5, width: 7.04, height: 16.26 }
+      },
+      legend_style: {
+        scale_symbols: false,
+        patch_width: 12,
+        patch_height: 6,
+        scale_to_patch: true,
+        item_gap: 2,
+        class_gap: 2,
+        layer_name_gap: 2,
+        patch_gap: 2,
+        text_gap: 2,
+        min_font_size: 5,
+        auto_fonts: true,
+        background: {
+          enabled: true,
+          color: '#ffffff',
+          gap_x: 1,
+          gap_y: 1
+        }
+      }
+    },
+    map_view: {
+      mode: 'auto_padding',
+      padding: { left: 0.2408, right: 0.1808, top: 0.14, bottom: 0.14 },
+      extent: { xmin: 0, ymin: 0, xmax: 10, ymax: 10 }
     },
     style: {
       basin_boundary: { color: '#222222', width_pt: 1.2 },

@@ -541,6 +541,235 @@ def _apply_station_labels(layer, station_layer: dict[str, Any]) -> None:
         return
 
 
+def _first_layout_element(layout, element_type: str, names: list[str]):
+    """按名称顺序查找布局元素，返回第一个匹配项。"""
+    for name in names:
+        try:
+            elements = layout.listElements(element_type, name)
+        except Exception:
+            elements = []
+        if elements:
+            return elements[0], name
+    return None, names[0]
+
+
+def _set_layout_element_visible(element, enabled: bool, warnings: list[str], label: str) -> None:
+    """安全设置布局元素显隐。"""
+    try:
+        element.visible = enabled
+    except Exception:
+        warnings.append(f"layout element {label!r} visibility could not be changed.")
+
+
+_LAYOUT_ELEMENT_BOXES = {
+    "title": {"x": 0.36, "y": 0.86, "width": 0.28, "height": 0.055, "text_size": 18},
+    "legend": {"x": 0.045, "y": 0.42, "width": 0.22, "height": 0.38},
+    "scale_bar": {"x": 0.31, "y": 0.055, "width": 0.34, "height": 0.035},
+    "north_arrow": {"x": 0.92, "y": 0.78, "width": 0.035, "height": 0.08},
+}
+
+_LEGEND_PATCH_HEIGHT = 6
+_LEGEND_PATCH_WIDTH = 12
+_LEGEND_LEFT_RESERVE_RATIO = 0.25
+_LEGEND_BOTTOM_RESERVE_RATIO = 1 / 3
+_DEFAULT_MAP_VIEW_PADDING = {"left": 0.2408, "right": 0.1808, "top": 0.14, "bottom": 0.14}
+
+
+def _manual_layout_element_config(layout_config: dict[str, Any], box_key: str) -> dict[str, Any] | None:
+    """Return a manual element config when the request opts into manual layout."""
+    if layout_config.get("mode") != "manual":
+        return None
+    elements = layout_config.get("elements")
+    if not isinstance(elements, dict):
+        return None
+    element_config = elements.get(box_key)
+    return element_config if isinstance(element_config, dict) else None
+
+
+def _layout_element_enabled(layout_config: dict[str, Any], box_key: str) -> bool:
+    """Read enabled from manual elements first, then from the legacy element switch."""
+    manual_config = _manual_layout_element_config(layout_config, box_key)
+    if manual_config is not None and "enabled" in manual_config:
+        return bool(manual_config.get("enabled"))
+    return bool(layout_config.get(box_key, {}).get("enabled", True))
+
+
+def _float_config(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _apply_absolute_layout_element_box(element, config: dict[str, Any], warnings: list[str]) -> None:
+    """Apply x/y/width/height values already expressed in layout page units."""
+    try:
+        element.elementPositionX = float(config["x"])
+        element.elementPositionY = float(config["y"])
+        element.elementWidth = float(config["width"])
+        element.elementHeight = float(config["height"])
+        if "font_size" in config and hasattr(element, "textSize"):
+            element.textSize = float(config["font_size"])
+    except Exception:
+        warnings.append(f"layout element {getattr(element, 'name', 'manual')!r} manual size or position could not be applied.")
+
+
+def _apply_layout_element_box(
+    layout,
+    element,
+    box_key: str,
+    warnings: list[str],
+    layout_config: dict[str, Any] | None = None,
+) -> None:
+    """按页面比例设置布局元素的位置和大小。"""
+    if layout_config is not None:
+        manual_config = _manual_layout_element_config(layout_config, box_key)
+        if manual_config is not None:
+            _apply_absolute_layout_element_box(element, manual_config, warnings)
+            return
+    box = _LAYOUT_ELEMENT_BOXES[box_key]
+    try:
+        page_width = float(getattr(layout, "pageWidth"))
+        page_height = float(getattr(layout, "pageHeight"))
+        element.elementPositionX = page_width * box["x"]
+        element.elementPositionY = page_height * box["y"]
+        element.elementWidth = page_width * box["width"]
+        element.elementHeight = page_height * box["height"]
+        if "text_size" in box and hasattr(element, "textSize"):
+            element.textSize = box["text_size"]
+    except Exception:
+        warnings.append(f"layout element {getattr(element, 'name', box_key)!r} size or position could not be adjusted.")
+
+
+def _apply_manual_map_frame_box(map_frame, job_config: dict[str, Any], warnings: list[str]) -> None:
+    """Apply a user-defined map frame position when layout.mode is manual."""
+    layout_config = job_config.get("layout", {})
+    manual_config = _manual_layout_element_config(layout_config, "map_frame")
+    if manual_config is None:
+        return
+    _apply_absolute_layout_element_box(map_frame, manual_config, warnings)
+
+
+def _mark_direct_white_background(element) -> None:
+    """Set direct background attributes when the ArcPy element exposes them."""
+    if hasattr(element, "background_color"):
+        try:
+            element.background_color = "#ffffff"
+        except Exception:
+            return
+
+
+def _tune_direct_legend_element(element) -> None:
+    """Apply direct LegendElement options exposed by ArcPy."""
+    if hasattr(element, "fittingStrategy"):
+        try:
+            element.fittingStrategy = "AdjustColumnsAndFont"
+        except Exception:
+            return
+
+
+def _legend_style_config(layout_config: dict[str, Any]) -> dict[str, Any]:
+    style_config = layout_config.get("legend_style")
+    return style_config if isinstance(style_config, dict) else {}
+
+
+def _tune_cim_legend_element(element, style_config: dict[str, Any] | None = None) -> None:
+    """Keep legend symbols compact and consistent across polygon/line/point layers."""
+    style_config = style_config or {}
+    patch_width = _float_config(style_config.get("patch_width"), _LEGEND_PATCH_WIDTH)
+    patch_height = _float_config(style_config.get("patch_height"), _LEGEND_PATCH_HEIGHT)
+    if hasattr(element, "fittingStrategy"):
+        element.fittingStrategy = "AdjustColumnsAndFont"
+    if hasattr(element, "scaleSymbols"):
+        element.scaleSymbols = bool(style_config.get("scale_symbols", False))
+    if hasattr(element, "autoFonts"):
+        element.autoFonts = bool(style_config.get("auto_fonts", True))
+    if hasattr(element, "minFontSize"):
+        element.minFontSize = _float_config(style_config.get("min_font_size"), 5)
+    if hasattr(element, "defaultPatchHeight"):
+        element.defaultPatchHeight = patch_height
+    if hasattr(element, "defaultPatchWidth"):
+        element.defaultPatchWidth = patch_width
+    for gap_name in ("itemGap", "classGap", "layerNameGap", "patchGap", "textGap"):
+        if hasattr(element, gap_name):
+            api_name = {
+                "itemGap": "item_gap",
+                "classGap": "class_gap",
+                "layerNameGap": "layer_name_gap",
+                "patchGap": "patch_gap",
+                "textGap": "text_gap",
+            }[gap_name]
+            setattr(element, gap_name, _float_config(style_config.get(api_name), 2))
+    for item in getattr(element, "items", []) or []:
+        if hasattr(item, "patchHeight"):
+            item.patchHeight = patch_height
+        if hasattr(item, "patchWidth"):
+            item.patchWidth = patch_width
+        if hasattr(item, "scaleToPatch"):
+            item.scaleToPatch = bool(style_config.get("scale_to_patch", True))
+
+
+def _make_white_cim_fill(cim_module):
+    """Create an opaque white CIM polygon fill symbol reference."""
+    color = cim_module.CreateCIMObjectFromClassName("CIMRGBColor", "V2")
+    color.values = [255, 255, 255, 100]
+    fill = cim_module.CreateCIMObjectFromClassName("CIMSolidFill", "V2")
+    fill.enable = True
+    fill.color = color
+    polygon = cim_module.CreateCIMObjectFromClassName("CIMPolygonSymbol", "V2")
+    polygon.symbolLayers = [fill]
+    symbol_ref = cim_module.CreateCIMObjectFromClassName("CIMSymbolReference", "V2")
+    symbol_ref.symbol = polygon
+    return symbol_ref
+
+
+def _set_cim_layout_white_backgrounds(
+    layout,
+    element_names: set[str],
+    warnings: list[str],
+    layout_config: dict[str, Any] | None = None,
+) -> None:
+    """通过 CIM 给标题和图例设置白底。"""
+    try:
+        import arcpy.cim as cim_module  # type: ignore
+
+        definition = layout.getDefinition("V2")
+        elements = getattr(definition, "elements", []) or []
+    except Exception:
+        return
+
+    layout_config = layout_config or {}
+    legend_style = _legend_style_config(layout_config)
+    changed = False
+    for element in elements:
+        if getattr(element, "name", None) not in element_names:
+            continue
+        frame = getattr(element, "graphicFrame", None)
+        if frame is None:
+            graphic = getattr(element, "graphic", None)
+            frame = getattr(graphic, "frame", None)
+        if frame is None:
+            warnings.append(f"layout element {getattr(element, 'name', 'unnamed')!r} background could not be set.")
+            continue
+        try:
+            frame.backgroundSymbol = _make_white_cim_fill(cim_module)
+            if hasattr(frame, "backgroundGapX"):
+                frame.backgroundGapX = 1
+            if hasattr(frame, "backgroundGapY"):
+                frame.backgroundGapY = 1
+            if getattr(element, "name", None) == "图例":
+                _tune_cim_legend_element(element, legend_style)
+            changed = True
+        except Exception:
+            warnings.append(f"layout element {getattr(element, 'name', 'unnamed')!r} background could not be set.")
+
+    if changed:
+        try:
+            layout.setDefinition(definition)
+        except Exception:
+            warnings.append("layout element white backgrounds could not be saved.")
+
+
 def _apply_layout_elements(layout, job_config: dict[str, Any], warnings: list[str]) -> None:
     """应用布局元素配置。
 
@@ -551,27 +780,93 @@ def _apply_layout_elements(layout, job_config: dict[str, Any], warnings: list[st
 
     这样你可以先稳定生成地图主体，后续再完善标题、图例、比例尺、指北针。
     """
-    title = job_config.get("map_title")
-    if title:
-        # 模板里如果有名为“标题”的 TEXT_ELEMENT，就把请求的 map_title 写进去。
-        title_elements = layout.listElements("TEXT_ELEMENT", "标题")
-        if title_elements:
-            title_elements[0].text = title
-        else:
-            warnings.append("layout title element named '标题' was not found; map_title was not applied.")
-
     layout_config = job_config.get("layout", {})
-    # 当前只是检查是否存在图例元素；后续可以继续扩展图例位置、字体、大小等。
-    if layout_config.get("legend", {}).get("enabled"):
-        legends = layout.listElements("LEGEND_ELEMENT")
-        if not legends:
-            warnings.append("legend is enabled, but no legend element exists in the template layout.")
-    # 比例尺和指北针在 ArcGIS Pro 中都属于 mapsurround 类元素，
-    # 这里先做存在性检查，缺失则提示。
-    if layout_config.get("scale_bar", {}).get("enabled"):
-        scale_bars = layout.listElements("MAPSURROUND_ELEMENT")
-        if not scale_bars:
-            warnings.append("scale bar is enabled, but no scale bar element exists in the template layout.")
+    title_enabled = _layout_element_enabled(layout_config, "title")
+    title_element, title_name = _first_layout_element(layout, "TEXT_ELEMENT", ["标题", "文本"])
+    if title_element is None:
+        warnings.append("layout title element named '标题' or '文本' was not found; map_title was not applied.")
+    else:
+        _set_layout_element_visible(title_element, title_enabled, warnings, title_name)
+        if title_enabled and job_config.get("map_title"):
+            try:
+                title_element.text = job_config["map_title"]
+            except Exception:
+                warnings.append(f"layout title element named {title_name!r} text could not be changed.")
+        if title_enabled:
+            _apply_layout_element_box(layout, title_element, "title", warnings, layout_config)
+            _mark_direct_white_background(title_element)
+
+    layout_elements = [
+        ("legend", "LEGEND_ELEMENT", ["图例"], "legend"),
+        ("scale_bar", "MAPSURROUND_ELEMENT", ["比例尺"], "scale bar"),
+        ("north_arrow", "MAPSURROUND_ELEMENT", ["指北针"], "north arrow"),
+    ]
+    for config_key, element_type, names, warning_label in layout_elements:
+        enabled = _layout_element_enabled(layout_config, config_key)
+        element, matched_name = _first_layout_element(layout, element_type, names)
+        if element is None:
+            if enabled:
+                warnings.append(f"{warning_label} is enabled, but no layout element named {names[0]!r} exists.")
+            continue
+        _set_layout_element_visible(element, enabled, warnings, matched_name)
+        if enabled:
+            _apply_layout_element_box(layout, element, config_key, warnings, layout_config)
+            if config_key == "legend":
+                _tune_direct_legend_element(element)
+                _mark_direct_white_background(element)
+
+    background_names = set()
+    if title_enabled and title_element is not None:
+        background_names.add(title_name)
+    legend_enabled = _layout_element_enabled(layout_config, "legend")
+    if legend_enabled:
+        background_names.add("图例")
+    if background_names:
+        _set_cim_layout_white_backgrounds(layout, background_names, warnings, layout_config)
+
+
+def _snapshot_layout_elements(layout, map_frame) -> list[tuple[Any, float, float, float, float]]:
+    """记录页面尺寸改变前的布局元素位置和大小。"""
+    try:
+        elements = list(layout.listElements())
+    except Exception:
+        elements = []
+    if map_frame not in elements:
+        elements.append(map_frame)
+    snapshots = []
+    for element in elements:
+        try:
+            snapshots.append(
+                (
+                    element,
+                    float(element.elementPositionX),
+                    float(element.elementPositionY),
+                    float(element.elementWidth),
+                    float(element.elementHeight),
+                )
+            )
+        except (AttributeError, TypeError, ValueError):
+            continue
+    return snapshots
+
+
+def _scale_layout_elements(
+    snapshots: list[tuple[Any, float, float, float, float]],
+    *,
+    scale_x: float,
+    scale_y: float,
+    warnings: list[str],
+) -> None:
+    """按页面尺寸变化比例缩放布局元素，保留模板版式。"""
+    for element, x, y, width, height in snapshots:
+        try:
+            element.elementPositionX = x * scale_x
+            element.elementPositionY = y * scale_y
+            element.elementWidth = width * scale_x
+            element.elementHeight = height * scale_y
+        except Exception:
+            name = getattr(element, "name", "unnamed")
+            warnings.append(f"layout element {name!r} size or position could not be scaled.")
 
 
 def _positive_int(value: Any, default: int) -> int:
@@ -631,20 +926,25 @@ def _apply_requested_output_size(layout, map_frame, job_config: dict[str, Any], 
     page_width = page_width_in * units_per_inch
     page_height = page_height_in * units_per_inch
 
+    original_page_width = float(getattr(layout, "pageWidth", 0) or 0)
+    original_page_height = float(getattr(layout, "pageHeight", 0) or 0)
+    element_snapshots = _snapshot_layout_elements(layout, map_frame)
+
     try:
         layout.pageWidth = page_width
         layout.pageHeight = page_height
     except Exception:
         warnings.append("layout page size could not be changed; template page size was kept.")
 
-    try:
-        # 地图框坐标使用布局页面单位。铺满页面后，输出比例会跟请求的宽高比例一致。
-        map_frame.elementPositionX = 0
-        map_frame.elementPositionY = 0
-        map_frame.elementWidth = page_width
-        map_frame.elementHeight = page_height
-    except Exception:
-        warnings.append("map frame size could not be changed; template map frame size was kept.")
+    if original_page_width > 0 and original_page_height > 0:
+        _scale_layout_elements(
+            element_snapshots,
+            scale_x=page_width / original_page_width,
+            scale_y=page_height / original_page_height,
+            warnings=warnings,
+        )
+    else:
+        warnings.append("layout element positions were not scaled because template page size could not be read.")
 
     return {
         "width_px": width_px,
@@ -743,7 +1043,34 @@ def _xy_table_to_station_points(arcpy, table_path: Path, point_path: Path, stati
     return point_path
 
 
-def _combine_extents(arcpy, extents: list[Any], padding_ratio: float = 0.08) -> Any | None:
+def _manual_extent(arcpy, map_view_config: dict[str, Any]) -> Any | None:
+    extent_config = map_view_config.get("extent")
+    if not isinstance(extent_config, dict):
+        return None
+    try:
+        return arcpy.Extent(
+            float(extent_config["xmin"]),
+            float(extent_config["ymin"]),
+            float(extent_config["xmax"]),
+            float(extent_config["ymax"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _map_view_padding(map_view_config: dict[str, Any]) -> dict[str, float]:
+    padding = map_view_config.get("padding")
+    if not isinstance(padding, dict):
+        return dict(_DEFAULT_MAP_VIEW_PADDING)
+    return {
+        "left": _float_config(padding.get("left"), _DEFAULT_MAP_VIEW_PADDING["left"]),
+        "right": _float_config(padding.get("right"), _DEFAULT_MAP_VIEW_PADDING["right"]),
+        "top": _float_config(padding.get("top"), _DEFAULT_MAP_VIEW_PADDING["top"]),
+        "bottom": _float_config(padding.get("bottom"), _DEFAULT_MAP_VIEW_PADDING["bottom"]),
+    }
+
+
+def _combine_extents(arcpy, extents: list[Any], map_view_config: dict[str, Any] | None = None) -> Any | None:
     """Combine ArcPy extent objects when coordinate bounds are available."""
     if not extents:
         return None
@@ -768,15 +1095,41 @@ def _combine_extents(arcpy, extents: list[Any], padding_ratio: float = 0.08) -> 
         width = xmax - xmin
         height = ymax - ymin
         fallback_span = max(abs(xmin), abs(ymin), abs(xmax), abs(ymax), 1.0) * 0.01
-        pad_x = (width if width > 0 else fallback_span) * padding_ratio
-        pad_y = (height if height > 0 else fallback_span) * padding_ratio
-        return arcpy.Extent(xmin - pad_x, ymin - pad_y, xmax + pad_x, ymax + pad_y)
+        map_view_config = map_view_config or {}
+        mode = map_view_config.get("mode", "auto_padding")
+        if mode == "auto":
+            padding = {"left": 0, "right": 0, "top": 0, "bottom": 0}
+        else:
+            padding = _map_view_padding(map_view_config)
+        span_x = width if width > 0 else fallback_span
+        span_y = height if height > 0 else fallback_span
+        return arcpy.Extent(
+            xmin - span_x * padding["left"],
+            ymin - span_y * padding["bottom"],
+            xmax + span_x * padding["right"],
+            ymax + span_y * padding["top"],
+        )
     except Exception:
         return extents[0]
 
 
-def _set_map_extent_to_layers(arcpy, map_frame, layers: list[Any], warnings: list[str]) -> None:
+def _set_map_extent_to_layers(
+    arcpy,
+    map_frame,
+    layers: list[Any],
+    warnings: list[str],
+    map_view_config: dict[str, Any] | None = None,
+) -> None:
     """Zoom the map frame to all business layers, including per-point station sublayers."""
+    map_view_config = map_view_config or {}
+    if map_view_config.get("mode") == "manual_extent":
+        extent = _manual_extent(arcpy, map_view_config)
+        if extent is None:
+            warnings.append("map_view.manual_extent is invalid; automatic extent was used.")
+        else:
+            map_frame.camera.setExtent(extent)
+            return
+
     extents = []
     for layer in layers:
         try:
@@ -786,7 +1139,7 @@ def _set_map_extent_to_layers(arcpy, map_frame, layers: list[Any], warnings: lis
             continue
         if extent is not None:
             extents.append(extent)
-    combined_extent = _combine_extents(arcpy, extents)
+    combined_extent = _combine_extents(arcpy, extents, map_view_config)
     if combined_extent is not None:
         map_frame.camera.setExtent(combined_extent)
 
@@ -976,6 +1329,7 @@ def _export_template_render(
     )
     warnings: list[str] = []
     requested_output = _apply_requested_output_size(layout, map_frame, job_config, warnings)
+    _apply_manual_map_frame_box(map_frame, job_config, warnings)
 
     # 清掉上次请求留下的业务图层，保留模板自带底图。
     _clear_business_layers(map_obj)
@@ -1015,7 +1369,16 @@ def _export_template_render(
 
     # Zoom to all business layers. Stations can sit outside the basin boundary,
     # especially while users are testing coordinates, so include them here too.
-    _set_map_extent_to_layers(arcpy, map_frame, basin_layers + river_layers + station_layers, warnings)
+    _set_map_extent_to_layers(
+        arcpy,
+        map_frame,
+        basin_layers + river_layers + station_layers,
+        warnings,
+        job_config.get("map_view", {}),
+    )
+    # ArcGIS populates legend items after layers are added, so tune the legend a second time
+    # right before export to keep point symbols compact in the legend.
+    _apply_layout_elements(layout, job_config, warnings)
 
     # DPI 和上面设置过的页面尺寸共同决定最终导出像素：
     # width_px = pageWidth * dpi, height_px = pageHeight * dpi。
