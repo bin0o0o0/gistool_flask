@@ -1156,6 +1156,28 @@ def _station_style_key(station_layer: dict[str, Any]) -> str:
     )
 
 
+def _legend_name_overrides(job_config: dict[str, Any]) -> dict[str, str]:
+    """Return a lookup table for centralized legend item renames."""
+    legend_style = (job_config.get("layout") or {}).get("legend_style") or {}
+    overrides = legend_style.get("name_overrides")
+    if not isinstance(overrides, list):
+        return {}
+    override_map: dict[str, str] = {}
+    for override in overrides:
+        if not isinstance(override, dict):
+            continue
+        source_key = override.get("source_key")
+        legend_name = override.get("legend_name")
+        if isinstance(source_key, str) and source_key and isinstance(legend_name, str) and legend_name.strip():
+            override_map[source_key] = legend_name.strip()
+    return override_map
+
+
+def _legend_layer_name(override_map: dict[str, str], source_key: str, default_name: str) -> str:
+    """Resolve the visible layer name that ArcGIS legend items will use."""
+    return override_map.get(source_key, default_name)
+
+
 def _station_point_layer_config(station_layer: dict[str, Any], point_config: dict[str, Any] | None) -> dict[str, Any]:
     """Merge layer defaults with one optional per-point override."""
     merged = dict(station_layer)
@@ -1204,6 +1226,7 @@ def _add_per_point_station_layers(
     work_dir: Path,
     index: int,
     warnings: list[str],
+    legend_name_map: dict[str, str],
 ) -> list[Any]:
     """Render one Excel station layer as internal sublayers grouped by per-point styles."""
     table_path = _create_station_table(arcpy, station_layer, work_dir, index)
@@ -1242,28 +1265,56 @@ def _add_per_point_station_layers(
     added_layers: list[Any] = []
     for group_index, group in enumerate(groups.values()):
         group_config = dict(group["config"])
-        group_config["layer_name"] = f"{base_layer_name} - {group_index + 1}"
+        default_group_name = f"{base_layer_name} - {group_index + 1}"
+        group_source_key = f"station-layer-{index + 1}-group-{group_index + 1}"
+        group_config["layer_name"] = _legend_layer_name(legend_name_map, group_source_key, default_group_name)
         group_table = _write_station_group_table(work_dir, index, group_index, fields, group["rows"])
         point_path = work_dir / f"station_layer_{index}_group_{group_index}.shp"
         _xy_table_to_station_points(arcpy, group_table, point_path, station_layer)
         added_layer = map_obj.addDataFromPath(str(point_path))
+        _rename_layer(added_layer, group_config["layer_name"])
         _apply_station_symbol(added_layer, group_config)
         _apply_station_labels(added_layer, group_config)
         added_layers.append(added_layer)
     return added_layers
 
 
-def _add_station_layers(arcpy, map_obj, station_layers: list[dict[str, Any]], work_dir: Path, warnings: list[str]) -> list[Any]:
+def _add_station_layers(
+    arcpy,
+    map_obj,
+    station_layers: list[dict[str, Any]],
+    work_dir: Path,
+    warnings: list[str],
+    legend_name_map: dict[str, str],
+) -> list[Any]:
     """Add station layers to the map and apply layer or per-point styles."""
     added_layers: list[Any] = []
     for index, station_layer in enumerate(station_layers):
         if station_layer.get("points"):
-            added_layers.extend(_add_per_point_station_layers(arcpy, map_obj, station_layer, work_dir, index, warnings))
+            added_layers.extend(
+                _add_per_point_station_layers(
+                    arcpy,
+                    map_obj,
+                    station_layer,
+                    work_dir,
+                    index,
+                    warnings,
+                    legend_name_map,
+                )
+            )
             continue
         point_path = _create_station_feature_class(arcpy, station_layer, work_dir, index)
+        layer_source_key = f"station-layer-{index + 1}"
+        resolved_station_layer = dict(station_layer)
+        resolved_station_layer["layer_name"] = _legend_layer_name(
+            legend_name_map,
+            layer_source_key,
+            station_layer.get("layer_name") or f"StationLayer{index + 1}",
+        )
         added_layer = map_obj.addDataFromPath(str(point_path))
-        _apply_station_symbol(added_layer, station_layer)
-        _apply_station_labels(added_layer, station_layer)
+        _rename_layer(added_layer, resolved_station_layer["layer_name"])
+        _apply_station_symbol(added_layer, resolved_station_layer)
+        _apply_station_labels(added_layer, resolved_station_layer)
         added_layers.append(added_layer)
     return added_layers
 
@@ -1336,6 +1387,7 @@ def _export_template_render(
     _apply_layout_elements(layout, job_config, warnings)
 
     inputs = job_config.get("inputs", {})
+    legend_name_map = _legend_name_overrides(job_config)
     # 先加全部流域，再加全部河流，再加站点。图层顺序通常会影响地图显示效果。
     basin_layers = []
     for index, basin_config in enumerate(_basin_layer_configs(inputs)):
@@ -1347,7 +1399,14 @@ def _export_template_render(
             "POLYGON",
         )
         basin_layer = map_obj.addDataFromPath(str(basin_path))
-        _rename_layer(basin_layer, basin_config.get("layer_name"))
+        _rename_layer(
+            basin_layer,
+            _legend_layer_name(
+                legend_name_map,
+                f"basin-layer-{index + 1}",
+                basin_config.get("layer_name") or f"Basin {index + 1}",
+            ),
+        )
         _apply_polygon_style(basin_layer, job_config, basin_config)
         basin_layers.append(basin_layer)
 
@@ -1361,11 +1420,25 @@ def _export_template_render(
             "POLYLINE",
         )
         river_layer = map_obj.addDataFromPath(str(river_path))
-        _rename_layer(river_layer, river_config.get("layer_name"))
+        _rename_layer(
+            river_layer,
+            _legend_layer_name(
+                legend_name_map,
+                f"river-layer-{index + 1}",
+                river_config.get("layer_name") or f"River {index + 1}",
+            ),
+        )
         _apply_line_style(river_layer, job_config, river_config)
         river_layers.append(river_layer)
 
-    station_layers = _add_station_layers(arcpy, map_obj, inputs.get("station_layers", []), output_png.parent, warnings)
+    station_layers = _add_station_layers(
+        arcpy,
+        map_obj,
+        inputs.get("station_layers", []),
+        output_png.parent,
+        warnings,
+        legend_name_map,
+    )
 
     # Zoom to all business layers. Stations can sit outside the basin boundary,
     # especially while users are testing coordinates, so include them here too.

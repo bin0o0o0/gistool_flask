@@ -1,16 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import WorkspaceView from '@/views/WorkspaceView.vue'
+import { routes } from '@/router/routes'
 
-// 第一版只做单用户本机工作台，所以路由保持极简；以后接入任务中心时再扩展。
+// 页面入口和功能路由集中在 routes.ts，便于给导航和预留页做测试保护。
 const router = createRouter({
   history: createWebHistory(),
-  routes: [
-    {
-      path: '/',
-      name: 'workspace',
-      component: WorkspaceView
-    }
-  ]
+  routes
 })
 
 export default router

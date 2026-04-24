@@ -1010,6 +1010,103 @@ def test_arcpy_renderer_splits_one_station_excel_by_per_point_styles(tmp_path, m
     assert "MixedStations - 2" in fake_projects[0]._map_frame.requested_extent_layers
 
 
+def test_arcpy_renderer_applies_legend_name_overrides_to_basin_river_and_station_groups(tmp_path, monkeypatch):
+    """Legend name overrides should rename the actual layers that feed the ArcGIS legend."""
+    from app.gis.render import ArcPyRenderer
+
+    template_project = tmp_path / "template.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    fake_projects = []
+
+    def build_project(opened_path: str):
+        project = _FakeProject(opened_path)
+        fake_projects.append(project)
+        return project
+
+    _install_fake_arcpy(monkeypatch, build_project)
+    job_config = _job_config(tmp_path)
+    job_config["inputs"]["station_layers"] = [job_config["inputs"]["station_layers"][0]]
+    job_config["inputs"]["station_layers"][0]["layer_name"] = "MixedStations"
+    job_config["inputs"]["station_layers"][0]["points"] = [
+        {
+            "row_number": 2,
+            "name": "Station A",
+            "symbol": {
+                "shape": "circle",
+                "color_preset": "green",
+                "color": "#00a651",
+                "size_pt": 20,
+                "rotation_deg": 0,
+            },
+            "label": {
+                "enabled": True,
+                "color": "#000000",
+                "font_size_pt": 20,
+                "position": "top_right",
+            },
+        },
+        {
+            "row_number": 3,
+            "name": "Station B",
+            "symbol": {
+                "shape": "triangle",
+                "color_preset": "red",
+                "color": "#ff0000",
+                "size_pt": 22,
+                "rotation_deg": 0,
+            },
+            "label": {
+                "enabled": True,
+                "color": "#111111",
+                "font_size_pt": 18,
+                "position": "left",
+            },
+        },
+    ]
+    job_config["layout"]["legend_style"] = {
+        "name_overrides": [
+            {
+                "source_type": "basin",
+                "source_key": "basin-layer-1",
+                "default_name": "Basin 1",
+                "legend_name": "流域边界",
+            },
+            {
+                "source_type": "river",
+                "source_key": "river-layer-1",
+                "default_name": "River 1",
+                "legend_name": "河流水系",
+            },
+            {
+                "source_type": "station_group",
+                "source_key": "station-layer-1-group-1",
+                "default_name": "MixedStations - 1",
+                "legend_name": "雨量站",
+            },
+            {
+                "source_type": "station_group",
+                "source_key": "station-layer-1-group-2",
+                "default_name": "MixedStations - 2",
+                "legend_name": "水文站",
+            },
+        ]
+    }
+
+    ArcPyRenderer().render(
+        job_config=job_config,
+        output_dir=tmp_path / "outputs",
+        template_project=template_project,
+    )
+
+    layers = {layer.name: layer for layer in fake_projects[0]._map.listLayers()}
+    assert "流域边界" in layers
+    assert "河流水系" in layers
+    assert "雨量站" in layers
+    assert "水文站" in layers
+    assert "雨量站" in fake_projects[0]._map_frame.requested_extent_layers
+    assert "水文站" in fake_projects[0]._map_frame.requested_extent_layers
+
+
 def test_arcpy_renderer_adds_padding_to_combined_map_extent(tmp_path, monkeypatch):
     """Final map extent should use the approved balanced default padding."""
     from app.gis.render import ArcPyRenderer

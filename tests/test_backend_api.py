@@ -661,6 +661,82 @@ def test_render_endpoint_rejects_invalid_label_position(tmp_path):
     assert "Unsupported label.position" in body["message"]
 
 
+def test_render_endpoint_accepts_legend_name_overrides(tmp_path):
+    """Legend item rename mappings should pass through to the renderer job config."""
+    from app import create_app
+
+    renderer = FakeRenderer()
+    template_project = tmp_path / "gistool_test.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    app = create_app(
+        {
+            "TESTING": True,
+            "OUTPUT_FOLDER": str(tmp_path / "outputs"),
+            "ARCPY_TEMPLATE_PROJECT": str(template_project),
+            "RENDERER": renderer,
+        }
+    )
+
+    payload = _valid_render_payload(tmp_path)
+    payload["layout"]["legend_style"] = {
+        "name_overrides": [
+            {
+                "source_type": "basin",
+                "source_key": "basin-layer-1",
+                "default_name": "GreenCircleStations",
+                "legend_name": "流域边界",
+            },
+            {
+                "source_type": "station_group",
+                "source_key": "station-layer-1-group-1",
+                "default_name": "GreenCircleStations - 1",
+                "legend_name": "雨量站",
+            },
+        ]
+    }
+
+    response = app.test_client().post("/api/render", json=payload)
+
+    assert response.status_code == 200
+    overrides = renderer.calls[0]["job_config"]["layout"]["legend_style"]["name_overrides"]
+    assert overrides[0]["source_key"] == "basin-layer-1"
+    assert overrides[1]["legend_name"] == "雨量站"
+
+
+def test_render_endpoint_rejects_invalid_legend_name_override_source_type(tmp_path):
+    """Legend name override source types should be validated before rendering."""
+    from app import create_app
+
+    template_project = tmp_path / "gistool_test.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    app = create_app(
+        {
+            "TESTING": True,
+            "OUTPUT_FOLDER": str(tmp_path),
+            "ARCPY_TEMPLATE_PROJECT": str(template_project),
+            "RENDERER": FakeRenderer(),
+        }
+    )
+    payload = _valid_render_payload(tmp_path)
+    payload["layout"]["legend_style"] = {
+        "name_overrides": [
+            {
+                "source_type": "station_cluster",
+                "source_key": "station-layer-1-group-1",
+                "default_name": "GreenCircleStations - 1",
+                "legend_name": "雨量站",
+            }
+        ]
+    }
+
+    response = app.test_client().post("/api/render", json=payload)
+
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body["success"] is False
+    assert "Unsupported legend name override source_type" in body["message"]
+
+
 def test_upload_endpoint_saves_geojson_and_returns_path(tmp_path):
     """上传 GeoJSON 后应保存到 UPLOAD_FOLDER，并返回可供 /api/render 使用的绝对路径。"""
     from app import create_app

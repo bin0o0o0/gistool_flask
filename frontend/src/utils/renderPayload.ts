@@ -1,4 +1,5 @@
 import type { WorkspaceForm } from '@/types'
+import { collectLegendNameOverrides } from '@/utils/legendNameOverrides'
 
 // 将表单状态转换成后端 /api/render 需要的 JSON。这里刻意不掺杂 UI 字段，比如上传进度。
 export function buildRenderPayload(form: WorkspaceForm) {
@@ -100,7 +101,10 @@ export function buildRenderPayload(form: WorkspaceForm) {
         enabled: form.layout.elements.north_arrow.enabled
       },
       elements: form.layout.elements,
-      legend_style: form.layout.legend_style
+      legend_style: {
+        ...form.layout.legend_style,
+        name_overrides: collectLegendNameOverrides(form)
+      }
     },
     map_view: form.map_view,
     style: {

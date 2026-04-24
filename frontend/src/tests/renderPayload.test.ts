@@ -197,7 +197,21 @@ function sampleForm(): WorkspaceForm {
           color: '#ffffff',
           gap_x: 1,
           gap_y: 1
-        }
+        },
+        name_overrides: [
+          {
+            source_type: 'river',
+            source_key: 'river-layer-1',
+            default_name: '主干河流',
+            legend_name: '河流水系'
+          },
+          {
+            source_type: 'station_group',
+            source_key: 'station-layer-1-group-2',
+            default_name: 'GreenCircleStations - 2',
+            legend_name: '红色三角站'
+          }
+        ]
       }
     },
     map_view: {
@@ -241,6 +255,44 @@ describe('buildRenderPayload', () => {
     expect(payload.layout.elements.map_frame.width).toBe(257.15)
     expect(payload.layout.legend_style.patch_width).toBe(12)
     expect(payload.layout.legend_style.patch_height).toBe(6)
+    expect(payload.layout.legend_style.name_overrides).toEqual([
+      {
+        source_type: 'basin',
+        source_key: 'basin-layer-1',
+        default_name: '上游流域',
+        legend_name: '上游流域'
+      },
+      {
+        source_type: 'basin',
+        source_key: 'basin-layer-2',
+        default_name: '下游流域',
+        legend_name: '下游流域'
+      },
+      {
+        source_type: 'river',
+        source_key: 'river-layer-1',
+        default_name: '主干河流',
+        legend_name: '河流水系'
+      },
+      {
+        source_type: 'river',
+        source_key: 'river-layer-2',
+        default_name: '支流',
+        legend_name: '支流'
+      },
+      {
+        source_type: 'station_group',
+        source_key: 'station-layer-1-group-1',
+        default_name: 'GreenCircleStations - 1',
+        legend_name: 'GreenCircleStations - 1'
+      },
+      {
+        source_type: 'station_group',
+        source_key: 'station-layer-1-group-2',
+        default_name: 'GreenCircleStations - 2',
+        legend_name: '红色三角站'
+      }
+    ])
     expect(payload.map_view.mode).toBe('auto_padding')
     expect(payload.map_view.padding.left).toBe(0.46)
   })

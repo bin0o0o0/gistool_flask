@@ -162,7 +162,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           color: '#ffffff',
           gap_x: 1,
           gap_y: 1
-        }
+        },
+        name_overrides: []
       }
     },
     map_view: {

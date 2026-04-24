@@ -55,6 +55,7 @@ describe('workspace store navigation', () => {
     })
     expect(store.form.layout.legend_style.patch_width).toBe(12)
     expect(store.form.layout.legend_style.patch_height).toBe(6)
+    expect(store.form.layout.legend_style.name_overrides).toEqual([])
     expect(store.form.map_view.padding).toMatchObject({
       left: 0.2408,
       right: 0.1808,

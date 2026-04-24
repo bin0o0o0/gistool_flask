@@ -38,6 +38,7 @@ from app.utils.responses import error_response, success_response
 
 
 render_bp = Blueprint("render", __name__)
+LEGEND_NAME_OVERRIDE_SOURCE_TYPES = {"basin", "river", "station_layer", "station_group"}
 
 
 class ValidationError(ValueError):
@@ -236,6 +237,11 @@ def _validate_render_payload(payload: dict[str, Any]) -> None:
     # basemap 必须来自常量列表，避免前端或 Apifox 写错字符串。
     if basemap not in BASemaps:
         raise ValidationError("layout.basemap is not supported.")
+    legend_style = layout.get("legend_style")
+    if legend_style is not None:
+        if not isinstance(legend_style, dict):
+            raise ValidationError("layout.legend_style must be an object.")
+        _validate_legend_name_overrides(legend_style.get("name_overrides"))
 
     for index, layer in enumerate(station_layers):
         _validate_station_layer(layer, index)
@@ -333,6 +339,27 @@ def _validate_station_point(point: Any, layer_index: int, point_index: int) -> N
         position = label.get("position")
         if position and position not in LABEL_POSITIONS:
             raise ValidationError(f"Unsupported station point label.position: {position}")
+
+
+def _validate_legend_name_overrides(name_overrides: Any) -> None:
+    """Validate optional centralized legend rename mappings."""
+    if name_overrides is None:
+        return
+    if not isinstance(name_overrides, list):
+        raise ValidationError("layout.legend_style.name_overrides must be a list.")
+    for index, override in enumerate(name_overrides):
+        if not isinstance(override, dict):
+            raise ValidationError(f"layout.legend_style.name_overrides[{index}] must be an object.")
+        source_type = override.get("source_type")
+        if source_type not in LEGEND_NAME_OVERRIDE_SOURCE_TYPES:
+            raise ValidationError(f"Unsupported legend name override source_type: {source_type}")
+        source_key = override.get("source_key")
+        if not isinstance(source_key, str) or not source_key.strip():
+            raise ValidationError(f"layout.legend_style.name_overrides[{index}].source_key must be a non-empty string.")
+        for field in ("default_name", "legend_name"):
+            value = override.get(field)
+            if value is not None and not isinstance(value, str):
+                raise ValidationError(f"layout.legend_style.name_overrides[{index}].{field} must be a string.")
 
 
 def _require_dict(payload: dict[str, Any], field: str) -> dict[str, Any]:

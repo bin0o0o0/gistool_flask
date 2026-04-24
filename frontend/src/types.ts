@@ -72,6 +72,15 @@ export interface StationLayerForm {
   points: StationPointForm[]
 }
 
+export type LegendNameSourceType = 'basin' | 'river' | 'station_layer' | 'station_group'
+
+export interface LegendNameOverrideForm {
+  source_type: LegendNameSourceType
+  source_key: string
+  default_name: string
+  legend_name: string
+}
+
 export interface BasinLayerForm {
   id: string
   upload?: UploadResult
@@ -170,6 +179,7 @@ export interface LegendStyleForm {
     gap_x: number
     gap_y: number
   }
+  name_overrides: LegendNameOverrideForm[]
 }
 
 export interface MapViewForm {

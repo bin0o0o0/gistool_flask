@@ -1,5 +1,9 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
+import { collectLegendNameOverrides } from '@/utils/legendNameOverrides'
 import { useWorkspaceStore } from '@/stores/workspace'
+import type { LegendNameOverrideForm, LegendNameSourceType } from '@/types'
 
 // 输出设置面板控制标题、输出尺寸、DPI、底图和模板布局元素开关。
 const store = useWorkspaceStore()
@@ -11,7 +15,37 @@ const layoutFields = [
   { key: 'height', label: '高' }
 ] as const
 
+const legendNameRows = computed(() => collectLegendNameOverrides(store.form))
+
 const markOutput = () => store.markStepConfigured('output')
+
+function updateLegendName(sourceKey: string, sourceType: LegendNameSourceType, defaultName: string, value: string) {
+  const normalized = value.trim()
+  const overrides = store.form.layout.legend_style.name_overrides
+  const overrideIndex = overrides.findIndex((item) => item.source_key === sourceKey)
+  if (!normalized || normalized === defaultName) {
+    if (overrideIndex >= 0) overrides.splice(overrideIndex, 1)
+    markOutput()
+    return
+  }
+
+  const nextOverride = {
+    source_type: sourceType,
+    source_key: sourceKey,
+    default_name: defaultName,
+    legend_name: normalized
+  }
+  if (overrideIndex >= 0) {
+    overrides.splice(overrideIndex, 1, nextOverride)
+  } else {
+    overrides.push(nextOverride)
+  }
+  markOutput()
+}
+
+function handleLegendNameInput(row: LegendNameOverrideForm, value: string | undefined) {
+  updateLegendName(row.source_key, row.source_type, row.default_name, value ?? '')
+}
 </script>
 
 <template>
@@ -254,6 +288,34 @@ const markOutput = () => store.markStepConfigured('output')
               图样统一缩放
             </el-checkbox>
           </div>
+          <div class="legend-name-editor">
+            <div class="legend-name-editor__header">
+              <h4>图例名称</h4>
+              <p>统一在这里修改图例显示名称；留空时使用当前图层名。</p>
+            </div>
+            <el-table :data="legendNameRows" size="small" empty-text="暂无可命名的图例项">
+              <el-table-column label="来源" min-width="170">
+                <template #default="{ row }">
+                  <span class="legend-source-tag">{{ row.source_key }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="当前名称" min-width="180">
+                <template #default="{ row }">
+                  <span class="legend-default-name">{{ row.default_name }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="图例显示名" min-width="220">
+                <template #default="{ row }">
+                  <el-input
+                    :model-value="row.legend_name"
+                    placeholder="留空则跟随当前名称"
+                    clearable
+                    @update:model-value="handleLegendNameInput(row, $event)"
+                  />
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
         </div>
 
         <div class="layout-card">
@@ -400,5 +462,29 @@ const markOutput = () => store.markStepConfigured('output')
 
 .layout-fields :deep(.el-input-number) {
   width: 100%;
+}
+
+.legend-name-editor {
+  margin-top: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.legend-name-editor__header h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #34302c;
+}
+
+.legend-name-editor__header p {
+  margin: 4px 0 0;
+  color: #716a62;
+  font-size: 13px;
+}
+
+.legend-source-tag,
+.legend-default-name {
+  color: #544c44;
+  word-break: break-word;
 }
 </style>
