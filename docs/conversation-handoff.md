@@ -1,6 +1,6 @@
 # GIS Flask Study 对话交接摘要
 
-更新时间：2026-04-23
+更新时间：2026-04-24
 
 ## 项目背景
 
@@ -24,19 +24,107 @@ http://127.0.0.1:5173/
 http://127.0.0.1:5000
 ```
 
-最近一次运行时的服务进程：
+当前已确认的服务进程：
 
 ```text
-后端 Flask / ArcGIS Python：PID 32312
-前端 Vite / node：PID 31480
+前端 Vite / node：PID 17568，监听 0.0.0.0:5173
+后端 Flask / ArcGIS Python：本轮未重新确认
 ```
 
 停止命令：
 
 ```powershell
-Stop-Process -Id 32312
-Stop-Process -Id 31480
+Stop-Process -Id 17568
 ```
+
+## 2026-04-24 首页与导航更新
+
+本轮已经把项目从“单工作台入口”扩展成网站入口结构：
+
+```text
+/                    首页 HomeView
+/watershed-extract   流域提取预留页 ComingSoonView
+/map-output          当前已有 GISTOOL 流域出图工作台 WorkspaceView
+/guide               使用指南预留页 ComingSoonView
+/workspace           redirect 到 /map-output
+```
+
+顶部导航固定为：
+
+```text
+首页 / 流域提取 / 流域出图 / 使用指南
+```
+
+### 首页视觉
+
+首页参考 `docs/界面示意图.png` 的方向，但最终没有继续把原图当背景使用，因为原图内已经烘焙了标题、导航、按钮和卡片，会和真实页面文本重复。
+
+当前做法：
+
+- 用 image-2.0 重新生成一张干净的全屏水文流域背景图。
+- 背景图只包含山地、流域面、河网、水系发光、DEM/等高线质感和左侧暗部留白。
+- 不包含任何烘焙文字、导航、按钮、卡片、Logo 或水印。
+- 页面标题、按钮、导航、卡片全部由 Vue/CSS 真实渲染。
+
+当前背景资源：
+
+```text
+frontend/src/assets/home-water-basin-bg.png
+```
+
+相关文件：
+
+```text
+frontend/src/views/HomeView.vue
+frontend/src/components/SiteNav.vue
+frontend/src/views/ComingSoonView.vue
+frontend/src/router/routes.ts
+frontend/src/router/index.ts
+frontend/src/tests/router.test.ts
+frontend/src/assets/home-water-basin-bg.png
+```
+
+### 当前页面状态
+
+- `首页` 已实现，主按钮“开始使用”跳转 `/map-output`。
+- `流域出图` 已对接当前项目已有的 GISTOOL 前端工作台，也就是 `WorkspaceView`。
+- `流域提取` 暂未开发真实业务，只预留 `/watershed-extract` 占位入口。
+- `使用指南` 暂未开发真实文档页，只预留 `/guide` 占位入口。
+- 当前浏览器停在：
+
+```text
+http://127.0.0.1:5173/watershed-extract
+```
+
+### 首页相关验证
+
+前端测试：
+
+```powershell
+cd frontend
+npm run test
+```
+
+最近结果：
+
+```text
+13 passed
+```
+
+前端构建：
+
+```powershell
+cd frontend
+npm run build
+```
+
+最近结果：
+
+```text
+build passed
+```
+
+仍有 Vite 大 chunk 常规提示，不影响运行。
 
 ## 当前已经实现的主要功能
 
@@ -305,7 +393,7 @@ npm run test
 结果：
 
 ```text
-12 passed
+13 passed
 ```
 
 前端构建：
@@ -339,7 +427,7 @@ output\frontend_20260423_manual_layout_test\map.png
 
 ## 当前改动文件
 
-工作区里还有未提交改动，主要包括：
+工作区里曾有未提交改动，主要包括：
 
 ```text
 README.md
@@ -355,18 +443,38 @@ tests/test_arcpy_renderer.py
 
 之前也改过站点逐点配置相关文件。
 
+2026-04-24 本轮检查到 `git status --short --untracked-files=all` 只显示：
+
+```text
+?? AGENT.md
+```
+
+首页相关文件已经在 git 跟踪列表中：
+
+```text
+frontend/src/assets/home-water-basin-bg.png
+frontend/src/components/SiteNav.vue
+frontend/src/router/routes.ts
+frontend/src/tests/router.test.ts
+frontend/src/views/ComingSoonView.vue
+frontend/src/views/HomeView.vue
+```
+
 ## 下一步建议
 
 如果在新对话继续，优先做：
 
 1. 检查当前 git diff，确认改动范围。
-2. 用浏览器刷新 `http://127.0.0.1:5173/`，确认默认布局参数已经变成 `frontend_20260423-8` 那套。
-3. 再用完整 APRX 模板跑一次真实出图。
-4. 如果结果确认无误，就提交并推送到 GitHub。
+2. 刷新 `http://127.0.0.1:5173/`，确认首页背景、标题、导航和按钮显示是否满意。
+3. 点击“流域出图”或“开始使用”，确认 `/map-output` 能进入当前 GISTOOL 工作台。
+4. 如果继续做功能页，优先补 `/watershed-extract` 的真实流域提取功能，或补 `/guide` 使用指南内容。
+5. 再用完整 APRX 模板跑一次真实出图。
+6. 如果结果确认无误，就提交并推送到 GitHub。
 
 ## 注意事项
 
 - 页面刷新后 Pinia 表单才会重新初始化默认值。
 - 如果用户已经在当前页面改过参数，刷新前页面状态可能仍是旧值。
+- 当前首页背景图是新生成的干净全屏背景，文件为 `frontend/src/assets/home-water-basin-bg.png`；不要再直接把 `docs/界面示意图.png` 当首页背景，否则会出现背景烘焙文字和页面真实文字重复。
 - APRX 一定要包含完整布局元素，否则图例、标题、比例尺、指北针不会出现。
 - ArcGIS Pro 打开 APRX 或 shapefile 时可能会产生 `.sr.lock` 文件，关掉 ArcGIS Pro 后再删。

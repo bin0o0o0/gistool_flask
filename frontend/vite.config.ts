@@ -15,8 +15,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // 和 README 中的后端启动方式对应：propy.bat backend/run.py 默认监听 5000。
+      // 本机 5000 被其它项目占用时，临时改到 5001（后端通过 FLASK_PORT=5001 启动）。
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'http://localhost:5001',
         changeOrigin: true
       }
     }

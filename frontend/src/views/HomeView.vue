@@ -117,7 +117,7 @@ const featureCards = [
   color: #f7fff7;
   font-family: "STKaiti", "KaiTi", "FangSong", var(--font-display);
   font-size: clamp(4rem, 6.2vw, 7.2rem);
-  line-height: 1.02;
+  line-height: 1.02
   letter-spacing: 0;
   text-shadow:
     0 0 18px rgba(106, 244, 240, 0.35),
