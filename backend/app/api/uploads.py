@@ -136,12 +136,24 @@ def _make_upload_dir(upload_root: Path) -> Path:
 
 def _save_regular_file(file: FileStorage, upload_dir: Path) -> Path:
     """保存普通单文件上传，例如 geojson、xlsx、aprx。"""
-    # secure_filename 会清理浏览器传来的文件名，去掉路径分隔符等不安全字符。
-    # 例如用户上传 "../../a.geojson"，这里不会按原路径写到上级目录。
-    filename = secure_filename(file.filename or "uploaded-file")
-    if not filename:
-        # 极端情况下，文件名清理后可能变成空字符串，给一个兜底名称。
-        filename = "uploaded-file"
+    original_filename = file.filename or "uploaded-file"
+    filename = secure_filename(original_filename)
+
+    # 处理中文文件名被 secure_filename 完全清理的情况
+    # 例如 "水系.shp" 会被清理成 "shp"，需要保留后缀
+    if not filename or not Path(filename).suffix:
+        original_suffix = Path(original_filename).suffix.lower()
+        if original_suffix:
+            # 如果清理后只剩后缀名（如 "shp"），用安全文件名加后缀
+            if filename == original_suffix[1:]:  # 去掉点后的比较
+                filename = f"file{original_suffix}"
+            elif not filename:
+                filename = f"uploaded{original_suffix}"
+            else:
+                filename = f"{filename}{original_suffix}"
+        elif not filename:
+            filename = "uploaded-file"
+
     target = upload_dir / filename
     file.save(target)
     return target
