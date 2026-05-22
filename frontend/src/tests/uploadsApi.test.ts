@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { uploadsApi } from '@/api/uploads'
+import { uploadsApi, watershedUploadsApi } from '@/api/uploads'
 
 const { postMock } = vi.hoisted(() => ({
   postMock: vi.fn()
@@ -42,5 +42,23 @@ describe('uploadsApi', () => {
       'basin.shx',
       'basin.dbf'
     ])
+  })
+
+  it('DEM raster upload uses dem kind and the file field', async () => {
+    await uploadsApi.upload(file('dem.tif'), 'dem')
+
+    const formData = postMock.mock.calls[0][1] as FormData
+    expect(postMock).toHaveBeenCalledWith('/api/uploads', expect.any(FormData))
+    expect(formData.get('kind')).toBe('dem')
+    expect((formData.get('file') as File).name).toBe('dem.tif')
+  })
+
+  it('watershed uploads route to the watershed-specific endpoint', async () => {
+    await watershedUploadsApi.upload(file('dem.tif'), 'dem')
+
+    const formData = postMock.mock.calls[0][1] as FormData
+    expect(postMock).toHaveBeenCalledWith('/api/watershed/uploads', expect.any(FormData))
+    expect(formData.get('kind')).toBe('dem')
+    expect((formData.get('file') as File).name).toBe('dem.tif')
   })
 })

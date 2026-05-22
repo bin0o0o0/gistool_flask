@@ -14,7 +14,7 @@ export interface UploadResult {
   size_bytes: number
 }
 
-export type UploadKind = 'template_project' | 'basin_boundary' | 'river_network' | 'station_excel'
+export type UploadKind = 'template_project' | 'basin_boundary' | 'river_network' | 'station_excel' | 'dem'
 
 export type StationShape = 'circle' | 'triangle' | 'square' | 'diamond' | 'rectangle'
 
@@ -208,4 +208,100 @@ export interface RenderResult {
   requested_output?: Record<string, unknown>
   requested_title?: string
   error?: string
+}
+
+export type BreakPoint = [number, number, number]
+
+export interface GeoJsonFeatureCollection {
+  type: 'FeatureCollection'
+  features: Array<Record<string, unknown>>
+}
+
+export interface WatershedThresholdPayload {
+  dem_path: string
+  shapefile_path?: string
+  plan_name?: string
+  cell_size_x?: number
+  cell_size_y?: number
+}
+
+export interface WatershedThresholdResponse {
+  success: boolean
+  message?: string
+  area_threshold: number
+  random_folder_name: string
+}
+
+export interface WatershedStep0Payload {
+  dem_path: string
+  area_threshold: number
+  shapefile_path?: string
+  random_folder_name: string
+  plan_name?: string
+}
+
+export interface WatershedStep0Response {
+  success: boolean
+  message?: string
+  buffered_boundary_geojson: string
+  streams_ori_geojson: string
+  buffered_boundary: GeoJsonFeatureCollection
+  streams_ori: GeoJsonFeatureCollection
+}
+
+export interface WatershedOutputs {
+  prePath?: string
+  subWatersheds?: GeoJsonFeatureCollection
+  reaches?: GeoJsonFeatureCollection
+  junctions?: GeoJsonFeatureCollection
+  breakPoints?: GeoJsonFeatureCollection
+}
+
+export interface WatershedStep1Payload {
+  dem_path: string
+  area_threshold: number
+  shapefile_path?: string
+  break_points?: BreakPoint[]
+  random_folder_name: string
+  plan_name?: string
+}
+
+export interface WatershedStep1Response {
+  success: boolean
+  outputs: WatershedOutputs
+}
+
+export interface WatershedStep2Payload {
+  operation: 'merge' | 'delete'
+  watershed_ids: string[]
+  random_folder: string
+  break_points?: BreakPoint[]
+  plan_name?: string
+}
+
+export interface WatershedStep2Response {
+  success: boolean
+  operation: 'merge' | 'delete'
+  result: Record<string, unknown>
+  outputs: WatershedOutputs
+}
+
+export interface WatershedPreviewPayload {
+  path: string
+  entity_type?: 'polygon' | 'line' | 'point'
+}
+
+export interface WatershedPreviewResponse {
+  success: boolean
+  layer: GeoJsonFeatureCollection
+}
+
+export interface WatershedPlanNameValidationPayload {
+  plan_name: string
+}
+
+export interface WatershedPlanNameValidationResponse {
+  success: boolean
+  exists: boolean
+  message?: string
 }

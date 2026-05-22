@@ -87,6 +87,89 @@ class FakeRenderer:
         return payload
 
 
+class FakeWatershedService:
+    """Fake watershed algorithm service used by API tests."""
+
+    instances = []
+
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+        self.calls = []
+        FakeWatershedService.instances.append(self)
+
+    def acc_default_value(self):
+        self.calls.append("acc_default_value")
+        return 35.95
+
+    def random_folder_name_r(self):
+        return "program"
+
+    def step0_streams(self):
+        self.calls.append("step0_streams")
+        return ("boundary.geojson", "streams.geojson", self.kwargs["random_folder_name"])
+
+    def step1_fill_depressions_and_flow(self):
+        self.calls.append("step1_fill_depressions_and_flow")
+
+    def step2_identify_streams(self):
+        self.calls.append("step2_identify_streams")
+
+    def step3_generate_subwatersheds(self):
+        self.calls.append("step3_generate_subwatersheds")
+
+    def generate_final_outputs(self):
+        self.calls.append("generate_final_outputs")
+        return {
+            "prePath": "program",
+            "subWatersheds": {"type": "FeatureCollection", "features": []},
+            "reaches": {"type": "FeatureCollection", "features": []},
+            "junctions": {"type": "FeatureCollection", "features": []},
+            "breakPoints": {"type": "FeatureCollection", "features": []},
+        }
+
+
+class FakeMergeDeleteService:
+    """Fake merge/delete service used by API tests."""
+
+    instances = []
+
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+        FakeMergeDeleteService.instances.append(self)
+
+    def step4_merge_or_delete_watersheds(self, *, operation, watershed_ids):
+        return {"status": f"watersheds {operation}d", "operation": operation, "ids": watershed_ids}
+
+    def generate_final_outputs(self):
+        return {
+            "prePath": "program",
+            "subWatersheds": {"type": "FeatureCollection", "features": []},
+            "reaches": {"type": "FeatureCollection", "features": []},
+            "junctions": {"type": "FeatureCollection", "features": []},
+        }
+
+
+def _watershed_test_app(tmp_path: Path):
+    """Create an app with fake watershed services injected."""
+    from app import create_app
+
+    FakeWatershedService.instances = []
+    FakeMergeDeleteService.instances = []
+    app = create_app(
+        {
+            "TESTING": True,
+            "OUTPUT_FOLDER": str(tmp_path / "outputs"),
+            "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+            "WATERSHED_PROGRAM_ROOT": str(tmp_path / "program"),
+            "WATERSHED_DEFAULT_DEM_PATH": str(tmp_path / "dem.tif"),
+            "RENDERER": FakeRenderer(),
+        }
+    )
+    app.extensions["watershed_service_factory"] = FakeWatershedService
+    app.extensions["watershed_merge_service_factory"] = FakeMergeDeleteService
+    return app
+
+
 def _valid_render_payload(tmp_path: Path) -> dict:
     """构造一份合法的 /api/render 请求体。
 
@@ -243,6 +326,16 @@ def test_config_does_not_use_machine_specific_default_template(tmp_path, monkeyp
     config = get_config({"OUTPUT_FOLDER": str(tmp_path / "outputs")})
 
     assert config.arcpy_template_project is None
+
+
+def test_config_includes_watershed_defaults(tmp_path):
+    """Watershed extraction should have a configurable work root and default DEM path."""
+    from app.core.config import get_config
+
+    config = get_config({"OUTPUT_FOLDER": str(tmp_path / "outputs")})
+
+    assert config.watershed_program_root == (ROOT / "docs" / "program").resolve()
+    assert config.watershed_default_dem_path == Path(r"D:\work\2026\code\data\data\dem\dem.tif")
 
 
 def test_render_endpoint_requires_template_when_no_default_is_configured(tmp_path, monkeypatch):
@@ -737,6 +830,227 @@ def test_render_endpoint_rejects_invalid_legend_name_override_source_type(tmp_pa
     assert "Unsupported legend name override source_type" in body["message"]
 
 
+def test_watershed_acc_threshold_returns_default_area_and_folder(tmp_path):
+    """POST /api/watershed/acc_threshold should call the watershed service and expose the default threshold."""
+    dem_path = tmp_path / "dem.tif"
+    dem_path.write_bytes(b"fake-dem")
+    shapefile_path = tmp_path / "basin.geojson"
+    shapefile_path.write_text("{}", encoding="utf-8")
+    app = _watershed_test_app(tmp_path)
+
+    response = app.test_client().post(
+        "/api/watershed/acc_threshold",
+        json={"dem_path": str(dem_path), "shapefile_path": str(shapefile_path)},
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    assert body["area_threshold"] == 35.95
+    assert body["random_folder_name"] == "program"
+    assert FakeWatershedService.instances[0].kwargs["plan_name"] == "方案1"
+
+
+def test_watershed_step0_requires_threshold_and_folder(tmp_path):
+    """POST /api/watershed/step0_streams should fail fast when inherited state is missing."""
+    dem_path = tmp_path / "dem.tif"
+    dem_path.write_bytes(b"fake-dem")
+    app = _watershed_test_app(tmp_path)
+
+    response = app.test_client().post("/api/watershed/step0_streams", json={"dem_path": str(dem_path)})
+
+    assert response.status_code == 400
+    assert response.get_json()["success"] is False
+    assert "area_threshold" in response.get_json()["message"]
+
+
+def test_watershed_step0_returns_preview_feature_collections(tmp_path, monkeypatch):
+    """POST /api/watershed/step0_streams should expose parsed preview layers in addition to file paths."""
+    dem_path = tmp_path / "dem.tif"
+    dem_path.write_bytes(b"fake-dem")
+    app = _watershed_test_app(tmp_path)
+
+    def fake_preview(path: str, entity_type: str = "polygon"):
+        return {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": None,
+                    "properties": {"path": path, "entity_type": entity_type},
+                }
+            ],
+        }
+
+    monkeypatch.setattr("app.api.watershed._preview_geo_layer_or_empty", fake_preview)
+
+    response = app.test_client().post(
+        "/api/watershed/step0_streams",
+        json={
+            "dem_path": str(dem_path),
+            "area_threshold": 35.95,
+            "random_folder_name": "program",
+            "plan_name": "方案 01",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    assert body["buffered_boundary"]["type"] == "FeatureCollection"
+    assert body["streams_ori"]["type"] == "FeatureCollection"
+    assert body["buffered_boundary"]["features"][0]["properties"]["entity_type"] == "polygon"
+    assert body["streams_ori"]["features"][0]["properties"]["entity_type"] == "line"
+
+
+def test_watershed_step1_accepts_empty_break_points_and_returns_json_outputs(tmp_path):
+    """POST /api/watershed/step1 should let the algorithm auto-pick an outlet when break_points is empty."""
+    dem_path = tmp_path / "dem.tif"
+    dem_path.write_bytes(b"fake-dem")
+    app = _watershed_test_app(tmp_path)
+
+    response = app.test_client().post(
+        "/api/watershed/step1",
+        json={
+            "dem_path": str(dem_path),
+            "area_threshold": 35.95,
+            "random_folder_name": "program",
+            "break_points": [],
+            "plan_name": "方案 01",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    assert isinstance(body["outputs"], dict)
+    assert body["outputs"]["subWatersheds"]["type"] == "FeatureCollection"
+    assert FakeWatershedService.instances[0].kwargs["control_points"] == []
+    assert FakeWatershedService.instances[0].kwargs["plan_name"] == "方案 01"
+
+
+def test_watershed_step1_clears_stale_merge_outputs_for_same_plan(tmp_path):
+    """POST /api/watershed/step1 should remove stale merge artifacts so step2 validates against the latest step1 result."""
+    dem_path = tmp_path / "dem.tif"
+    dem_path.write_bytes(b"fake-dem")
+    plan_dir = tmp_path / "program" / "方案 01" / "basic_file"
+    plan_dir.mkdir(parents=True)
+    stale_merge_files = [
+        plan_dir / "sub_catchment_merge.geojson",
+        plan_dir / "upstream_cells_merge.geojson",
+        plan_dir / "junctions_merge.geojson",
+        plan_dir / "river_network_linestrings_merge.geojson",
+        plan_dir / "downstream_dict_merge.json",
+    ]
+    for path in stale_merge_files:
+        path.write_text("stale", encoding="utf-8")
+
+    app = _watershed_test_app(tmp_path)
+
+    response = app.test_client().post(
+        "/api/watershed/step1",
+        json={
+            "dem_path": str(dem_path),
+            "area_threshold": 35.95,
+            "random_folder_name": "program",
+            "break_points": [],
+            "plan_name": "方案 01",
+        },
+    )
+
+    assert response.status_code == 200
+    for path in stale_merge_files:
+        assert not path.exists()
+
+
+def test_watershed_preview_layer_returns_feature_collection_for_geojson(tmp_path):
+    """POST /api/watershed/preview-layer should parse uploaded GeoJSON into a frontend-ready FeatureCollection."""
+    app = _watershed_test_app(tmp_path)
+    boundary_geojson = tmp_path / "basin.geojson"
+    boundary_geojson.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Polygon", "coordinates": [[[105, 27], [106, 27], [106, 28], [105, 27]]]},
+                        "properties": {"name": "basin"},
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    response = app.test_client().post("/api/watershed/preview-layer", json={"path": str(boundary_geojson)})
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    assert body["layer"]["type"] == "FeatureCollection"
+    assert body["layer"]["features"][0]["properties"]["name"] == "basin"
+
+
+def test_watershed_validate_plan_name_reports_existing_directory(tmp_path):
+    """POST /api/watershed/validate-plan-name should warn when the plan directory already exists."""
+    app = _watershed_test_app(tmp_path)
+    existing_dir = tmp_path / "program" / "方案 01"
+    existing_dir.mkdir(parents=True)
+
+    response = app.test_client().post("/api/watershed/validate-plan-name", json={"plan_name": "方案 01"})
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    assert body["exists"] is True
+
+
+def test_watershed_validate_plan_name_reports_missing_directory(tmp_path):
+    """POST /api/watershed/validate-plan-name should return exists=false when the plan directory is absent."""
+    app = _watershed_test_app(tmp_path)
+
+    response = app.test_client().post("/api/watershed/validate-plan-name", json={"plan_name": "新方案"})
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    assert body["exists"] is False
+
+
+def test_watershed_step2_rejects_invalid_operation(tmp_path):
+    """POST /api/watershed/step2 should only accept merge and delete operations."""
+    app = _watershed_test_app(tmp_path)
+
+    response = app.test_client().post(
+        "/api/watershed/step2",
+        json={"operation": "split", "watershed_ids": ["Watershed1.1"], "random_folder": "program"},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["success"] is False
+    assert "operation" in response.get_json()["message"]
+
+
+def test_watershed_step2_returns_json_outputs(tmp_path):
+    """POST /api/watershed/step2 should return merge/delete outputs as JSON objects."""
+    app = _watershed_test_app(tmp_path)
+
+    response = app.test_client().post(
+        "/api/watershed/step2",
+        json={"operation": "merge", "watershed_ids": ["Watershed1.1"], "random_folder": "program", "plan_name": "方案 01"},
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    assert body["operation"] == "merge"
+    assert body["result"]["ids"] == ["Watershed1.1"]
+    assert isinstance(body["outputs"], dict)
+    assert FakeMergeDeleteService.instances[0].kwargs["plan_name"] == "方案 01"
+
+
 def test_upload_endpoint_saves_geojson_and_returns_path(tmp_path):
     """上传 GeoJSON 后应保存到 UPLOAD_FOLDER，并返回可供 /api/render 使用的绝对路径。"""
     from app import create_app
@@ -768,6 +1082,68 @@ def test_upload_endpoint_saves_geojson_and_returns_path(tmp_path):
     assert data["suffix"] == ".geojson"
     assert Path(data["path"]).exists()
     assert Path(data["path"]).is_absolute()
+
+
+def test_upload_endpoint_saves_dem_tif(tmp_path):
+    """DEM rasters should upload through the shared upload endpoint and return a server path."""
+    from app import create_app
+
+    app = create_app(
+        {
+            "TESTING": True,
+            "OUTPUT_FOLDER": str(tmp_path / "outputs"),
+            "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+            "RENDERER": FakeRenderer(),
+        }
+    )
+
+    response = app.test_client().post(
+        "/api/uploads",
+        data={
+            "kind": "dem",
+            "file": (io.BytesIO(b"fake-tif"), "dem.tif"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    data = body["data"]
+    assert data["kind"] == "dem"
+    assert data["suffix"] == ".tif"
+    assert Path(data["path"]).exists()
+
+
+def test_watershed_upload_endpoint_saves_dem_tif(tmp_path):
+    """Watershed-specific uploads should be available under /api/watershed/uploads."""
+    from app import create_app
+
+    app = create_app(
+        {
+            "TESTING": True,
+            "OUTPUT_FOLDER": str(tmp_path / "outputs"),
+            "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+            "RENDERER": FakeRenderer(),
+        }
+    )
+
+    response = app.test_client().post(
+        "/api/watershed/uploads",
+        data={
+            "kind": "dem",
+            "file": (io.BytesIO(b"fake-tif"), "dem.tif"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    data = body["data"]
+    assert data["kind"] == "dem"
+    assert data["suffix"] == ".tif"
+    assert Path(data["path"]).exists()
 
 
 def test_upload_endpoint_saves_xlsx_and_aprx(tmp_path):

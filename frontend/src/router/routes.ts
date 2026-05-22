@@ -1,6 +1,7 @@
 import type { RouteRecordRaw } from 'vue-router'
 import ComingSoonView from '@/views/ComingSoonView.vue'
 import HomeView from '@/views/HomeView.vue'
+import WatershedExtractView from '@/views/WatershedExtractView.vue'
 import WorkspaceView from '@/views/WorkspaceView.vue'
 
 export const routes: RouteRecordRaw[] = [
@@ -12,12 +13,7 @@ export const routes: RouteRecordRaw[] = [
   {
     path: '/watershed-extract',
     name: 'watershed-extract',
-    component: ComingSoonView,
-    props: {
-      eyebrow: 'Reserved Feature',
-      title: '流域提取功能建设中',
-      description: '流域提取功能正在规划中，后续将接入 DEM 分析、河网提取与子流域划分流程。'
-    }
+    component: WatershedExtractView
   },
   {
     path: '/map-output',

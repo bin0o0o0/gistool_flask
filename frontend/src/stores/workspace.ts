@@ -24,6 +24,7 @@ import type {
 } from '@/types'
 
 type ConfigurableStepId = Exclude<WorkspaceStepId, 'data'>
+type WorkspaceUploadKind = Exclude<UploadKind, 'station_excel' | 'dem'>
 type SheetRow = unknown[]
 
 function defaultStationLayer(index = 1): StationLayerForm {
@@ -109,7 +110,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     stations: false
   })
 
-  const uploads = ref<Record<Exclude<UploadKind, 'station_excel'>, UploadedFileState>>({
+  const uploads = ref<Record<WorkspaceUploadKind, UploadedFileState>>({
     template_project: { uploading: false },
     basin_boundary: { uploading: false },
     river_network: { uploading: false }
@@ -229,7 +230,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  async function uploadDataFiles(kind: Exclude<UploadKind, 'station_excel'>, files: File[]) {
+  async function uploadDataFiles(kind: WorkspaceUploadKind, files: File[]) {
     const primaryFile = files[0]
     if (!primaryFile) return
 
@@ -253,7 +254,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  async function uploadDataFile(kind: Exclude<UploadKind, 'station_excel'>, file: File) {
+  async function uploadDataFile(kind: WorkspaceUploadKind, file: File) {
     await uploadDataFiles(kind, [file])
   }
 
@@ -285,7 +286,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return response.data.data
   }
 
-  async function uploadDatasetFiles(files: File[], kind: Exclude<UploadKind, 'station_excel'>): Promise<UploadResult[]> {
+  async function uploadDatasetFiles(files: File[], kind: WorkspaceUploadKind): Promise<UploadResult[]> {
     if (kind === 'template_project') {
       return [await uploadFile(files[0], kind)]
     }

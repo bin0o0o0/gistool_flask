@@ -31,6 +31,7 @@ uploads_bp = Blueprint("uploads", __name__)
 # 后端会根据 kind 决定允许哪些文件后缀，避免把 Excel 当流域边界、把 aprx 当站点表使用。
 ALLOWED_KINDS = {
     "basin_boundary",
+    "dem",
     "river_network",
     "station_excel",
     "template_project",
@@ -41,6 +42,7 @@ ALLOWED_KINDS = {
 # 也可以由前端一次多选 shp/shx/dbf/prj 等组件文件后用 files 字段上传。
 ALLOWED_SUFFIXES_BY_KIND = {
     "basin_boundary": {".geojson", ".json", ".kml", ".zip", ".shp"},
+    "dem": {".tif", ".tiff"},
     "river_network": {".geojson", ".json", ".kml", ".zip", ".shp"},
     "station_excel": {".xlsx"},
     "template_project": {".aprx"},

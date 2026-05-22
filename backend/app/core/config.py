@@ -19,6 +19,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_WATERSHED_DEM_PATH = Path(r"D:\work\2026\code\data\data\dem\dem.tif")
+
 
 def _is_truthy(value: Any) -> bool:
     """把配置值转换成布尔值。
@@ -59,6 +62,8 @@ class AppConfig:
 
     # 测试钩子：单元测试传 FakeRenderer，真实运行保持 None。
     renderer: Any | None = None
+    watershed_program_root: Path = PROJECT_ROOT / "docs" / "program"
+    watershed_default_dem_path: Path = DEFAULT_WATERSHED_DEM_PATH
 
     @classmethod
     def from_mapping(cls, mapping: dict[str, Any] | None = None) -> "AppConfig":
@@ -88,6 +93,16 @@ class AppConfig:
             or os.getenv("UPLOAD_FOLDER")
             or Path.cwd() / "uploads"
         ).resolve()
+        watershed_program_root = Path(
+            values.get("WATERSHED_PROGRAM_ROOT")
+            or os.getenv("WATERSHED_PROGRAM_ROOT")
+            or PROJECT_ROOT / "docs" / "program"
+        ).resolve()
+        watershed_default_dem_path = Path(
+            values.get("WATERSHED_DEFAULT_DEM_PATH")
+            or os.getenv("WATERSHED_DEFAULT_DEM_PATH")
+            or DEFAULT_WATERSHED_DEM_PATH
+        )
 
         # 模板工程可以由单次测试覆盖，也可以由环境变量覆盖。
         # 这里不设置代码默认值，是为了避免把开发电脑上的绝对路径带到其他部署环境。
@@ -110,6 +125,8 @@ class AppConfig:
             ),
             frontend_url=values.get("FRONTEND_URL") or os.getenv("FRONTEND_URL", "*"),
             renderer=values.get("RENDERER"),
+            watershed_program_root=watershed_program_root,
+            watershed_default_dem_path=watershed_default_dem_path,
         )
 
     def ensure_directories(self) -> None:
@@ -120,6 +137,7 @@ class AppConfig:
         """
         self.output_folder.mkdir(parents=True, exist_ok=True)
         self.upload_folder.mkdir(parents=True, exist_ok=True)
+        self.watershed_program_root.mkdir(parents=True, exist_ok=True)
 
     def to_flask_mapping(self) -> dict[str, Any]:
         """转换成 Flask app.config 可直接加载的字典。
@@ -135,6 +153,8 @@ class AppConfig:
             "ARCGIS_PROPY": str(self.arcgis_propy_path) if self.arcgis_propy_path else None,
             "ALLOW_ABSOLUTE_OUTPUT_DIR": self.allow_absolute_output_dir,
             "FRONTEND_URL": self.frontend_url,
+            "WATERSHED_PROGRAM_ROOT": str(self.watershed_program_root),
+            "WATERSHED_DEFAULT_DEM_PATH": str(self.watershed_default_dem_path),
         }
 
     def to_health_payload(self) -> dict[str, Any]:
@@ -158,6 +178,8 @@ class AppConfig:
             ),
             "allow_absolute_output_dir": self.allow_absolute_output_dir,
             "runtime": "ArcPy in-process",
+            "watershed_program_root": str(self.watershed_program_root),
+            "watershed_default_dem_path": str(self.watershed_default_dem_path),
         }
 
 

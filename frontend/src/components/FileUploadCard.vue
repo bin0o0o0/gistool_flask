@@ -5,10 +5,11 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import type { UploadKind } from '@/types'
 
 const store = useWorkspaceStore()
+type WorkspaceUploadKind = Exclude<UploadKind, 'station_excel' | 'dem'>
 
 // 三类基础文件共用一张上传卡：模板工程、流域边界、河流水系。
 const uploadItems: Array<{
-  kind: Exclude<UploadKind, 'station_excel'>
+  kind: WorkspaceUploadKind
   title: string
   hint: string
   accept: string
@@ -37,7 +38,7 @@ const uploadItems: Array<{
   }
 ]
 
-async function handleUpload(kind: Exclude<UploadKind, 'station_excel'>, files: File[]) {
+async function handleUpload(kind: WorkspaceUploadKind, files: File[]) {
   await store.uploadDataFiles(kind, files)
   if (!store.error) {
     ElMessage.success('文件上传成功')
@@ -46,20 +47,20 @@ async function handleUpload(kind: Exclude<UploadKind, 'station_excel'>, files: F
   }
 }
 
-function uploadRequest(kind: Exclude<UploadKind, 'station_excel'>) {
+function uploadRequest(kind: WorkspaceUploadKind) {
   // Element Plus 需要一个固定函数引用，这里用闭包把当前文件类型带进去。
   return (options: UploadRequestOptions) => handleUpload(kind, [options.file])
 }
 
-function openFilePicker(kind: Exclude<UploadKind, 'station_excel'>) {
+function openFilePicker(kind: WorkspaceUploadKind) {
   document.getElementById(inputId(kind))?.click()
 }
 
-function inputId(kind: Exclude<UploadKind, 'station_excel'>) {
+function inputId(kind: WorkspaceUploadKind) {
   return `upload-input-${kind}`
 }
 
-function handleNativeSelection(kind: Exclude<UploadKind, 'station_excel'>, event: Event) {
+function handleNativeSelection(kind: WorkspaceUploadKind, event: Event) {
   const input = event.target as HTMLInputElement
   const files = Array.from(input.files || [])
   if (files.length > 0) {
@@ -69,7 +70,7 @@ function handleNativeSelection(kind: Exclude<UploadKind, 'station_excel'>, event
   input.value = ''
 }
 
-function buttonLabel(kind: Exclude<UploadKind, 'station_excel'>) {
+function buttonLabel(kind: WorkspaceUploadKind) {
   const state = store.uploads[kind]
   if (state.uploading) return '上传中...'
   if (kind === 'basin_boundary') return '添加流域面'
@@ -77,13 +78,13 @@ function buttonLabel(kind: Exclude<UploadKind, 'station_excel'>) {
   return state.result ? '重新选择文件' : '选择文件'
 }
 
-function uploadedDatasetCount(kind: Exclude<UploadKind, 'station_excel'>) {
+function uploadedDatasetCount(kind: WorkspaceUploadKind) {
   if (kind === 'basin_boundary') return store.form.inputs.basin_boundaries.length
   if (kind === 'river_network') return store.form.inputs.river_networks.length
   return store.uploads[kind].result ? 1 : 0
 }
 
-function isUploadReady(kind: Exclude<UploadKind, 'station_excel'>) {
+function isUploadReady(kind: WorkspaceUploadKind) {
   return uploadedDatasetCount(kind) > 0
 }
 </script>

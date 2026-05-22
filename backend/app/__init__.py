@@ -74,11 +74,14 @@ def _register_blueprints(app) -> None:
     from app.api.options import options_bp
     from app.api.render import render_bp
     from app.api.uploads import uploads_bp
+    from app.api.watershed import watershed_bp
 
     app.register_blueprint(health_bp, url_prefix="/api/health")
     app.register_blueprint(options_bp, url_prefix="/api/render-options")
     app.register_blueprint(render_bp, url_prefix="/api/render")
     app.register_blueprint(uploads_bp, url_prefix="/api/uploads")
+    app.register_blueprint(uploads_bp, url_prefix="/api/watershed/uploads", name_prefix="watershed")
+    app.register_blueprint(watershed_bp, url_prefix="/api/watershed")
 
 
 def _register_error_handlers(app) -> None:

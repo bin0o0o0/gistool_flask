@@ -28,6 +28,7 @@ build/
 instance/
 output/
 uploads/
+docs/program/
 frontend/node_modules/
 frontend/dist/
 

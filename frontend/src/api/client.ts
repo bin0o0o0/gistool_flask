@@ -16,11 +16,11 @@ export function getApiErrorMessage(error: unknown): string {
     // Vite 代理找不到 Flask 后端时，经常会返回一个空的 500 文本响应。
     // 对用户来说真正的问题是“后端没启动”，不是上传文件本身坏了。
     if (status === 500 && (typeof data === 'string' || data == null)) {
-      return '后端服务不可用：请确认 Flask 已在 http://localhost:5000 启动。'
+      return '后端服务不可用：请确认对应 Flask 服务已启动，并检查当前功能的代理端口配置。'
     }
 
     if (error.code === 'ERR_NETWORK') {
-      return '无法连接后端服务：请确认 Flask 已启动，并检查端口是否为 5000。'
+      return '无法连接后端服务：请确认对应 Flask 服务已启动，并检查当前功能的代理端口配置。'
     }
 
     if (typeof data === 'string' && data.trim()) {
