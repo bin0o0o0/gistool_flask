@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_WATERSHED_DEM_PATH = Path(r"D:\work\2026\code\data\data\dem\dem.tif")
+DEFAULT_WATERSHED_DEM_PATH = Path(r"D:\work\data\data\dem\dem.tif")
 
 
 def _is_truthy(value: Any) -> bool:

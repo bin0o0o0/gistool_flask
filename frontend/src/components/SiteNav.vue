@@ -3,6 +3,7 @@ import { ArrowRight } from '@element-plus/icons-vue'
 
 const navItems = [
   { label: '首页', to: '/' },
+  { label: '生成流域边界', to: '/watershed-boundary-generator' },
   { label: '流域提取', to: '/watershed-extract' },
   { label: '流域出图', to: '/map-output' },
   { label: '使用指南', to: '/guide' }

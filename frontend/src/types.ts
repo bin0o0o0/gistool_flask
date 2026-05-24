@@ -305,3 +305,32 @@ export interface WatershedPlanNameValidationResponse {
   exists: boolean
   message?: string
 }
+
+export interface WatershedBoundaryPoint {
+  x: number
+  y: number
+}
+
+export interface WatershedBoundaryBbox {
+  min_x: number
+  min_y: number
+  max_x: number
+  max_y: number
+}
+
+export interface WatershedBoundaryGeneratePayload {
+  dem_path?: string
+  point: WatershedBoundaryPoint
+  bbox: WatershedBoundaryBbox
+  snap_threshold?: number
+}
+
+export interface WatershedBoundaryGenerateData {
+  dem_path: string
+  point: WatershedBoundaryPoint
+  bbox: WatershedBoundaryBbox
+  snap_threshold: number
+  result: GeoJsonFeatureCollection
+}
+
+export type WatershedBoundaryGenerateResponse = ApiResponse<WatershedBoundaryGenerateData>

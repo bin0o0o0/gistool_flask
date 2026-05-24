@@ -6,13 +6,15 @@ import heroBackground from '@/assets/home-water-basin-bg.png'
 const featureCards = [
   {
     title: '智能水系提取',
-    description: '基于水文拓扑与 DEM 分析，预留河流网络、子流域边界和出口控制点提取流程。',
-    icon: '⌁'
+    description:
+      '基于水文拓扑与 DEM 分析，串联河网提取、子流域边界识别和控制点配置流程。',
+    icon: '水'
   },
   {
     title: '高质量专题出图',
-    description: '对接当前 GISTOOL 出图工作台，支持 APRX 模板、站点样式、人工布局和 PNG 导出。',
-    icon: '▧'
+    description:
+      '衔接当前 GISTOOL 出图工作台，支持 APRX 模板、站点样式配置、人工布局和 PNG 导出。',
+    icon: '图'
   }
 ]
 </script>
@@ -24,9 +26,10 @@ const featureCards = [
     <main class="home-hero">
       <section class="home-hero__content" aria-labelledby="home-title">
         <p class="home-hero__kicker">智能水文分析与高质量专题制图平台</p>
-        <h1 id="home-title">流域提取 · 可视化出图</h1>
+        <h1 id="home-title">流域提取与可视化出图</h1>
         <p class="home-hero__copy">
-          上传 APRX 模板、流域边界、河流与站点 Excel；支持站点逐点样式配置、人工布局控制、自动出图与高质量导出。
+          上传 APRX 模板、流域边界、河流与站点 Excel，完成站点样式配置、人工布局控制、
+          自动出图与成果导出。
         </p>
 
         <div class="home-hero__actions">
@@ -36,7 +39,7 @@ const featureCards = [
           </RouterLink>
           <a class="home-button home-button--ghost" href="#home-capabilities">
             <el-icon aria-hidden="true"><VideoPlay /></el-icon>
-            <span>查看演示</span>
+            <span>查看能力</span>
           </a>
         </div>
       </section>
@@ -115,9 +118,9 @@ const featureCards = [
 .home-hero h1 {
   margin: 0;
   color: #f7fff7;
-  font-family: "STKaiti", "KaiTi", "FangSong", var(--font-display);
+  font-family: "STKaiti", "KaiTi", "FangSong", serif;
   font-size: clamp(4rem, 6.2vw, 7.2rem);
-  line-height: 1.02
+  line-height: 1.02;
   letter-spacing: 0;
   text-shadow:
     0 0 18px rgba(106, 244, 240, 0.35),
@@ -240,7 +243,6 @@ const featureCards = [
   .capability-card:nth-child(2) {
     animation-delay: 90ms;
   }
-
 }
 
 @keyframes home-rise {

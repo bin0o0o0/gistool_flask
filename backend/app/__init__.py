@@ -28,6 +28,7 @@ def create_app(config_overrides: dict | None = None):
     # 这里先补项目 .venv，再补用户目录。这样 Flask 可以固定安装在项目 .venv 中，
     # 但进程仍然由 propy 启动，ArcPy 仍然来自 ArcGIS Pro Python。
     _ensure_runtime_site_packages()
+    _ensure_numpy_compatibility()
 
     # 延迟导入 Flask：这样 `from app.gis.render import ArcPyRenderer`
     # 这种只想使用渲染核心的代码，不会因为环境里缺 Flask 而失败。
@@ -74,6 +75,7 @@ def _register_blueprints(app) -> None:
     from app.api.options import options_bp
     from app.api.render import render_bp
     from app.api.uploads import uploads_bp
+    from app.api.watershed_boundary import watershed_boundary_bp
     from app.api.watershed import watershed_bp
 
     app.register_blueprint(health_bp, url_prefix="/api/health")
@@ -82,6 +84,7 @@ def _register_blueprints(app) -> None:
     app.register_blueprint(uploads_bp, url_prefix="/api/uploads")
     app.register_blueprint(uploads_bp, url_prefix="/api/watershed/uploads", name_prefix="watershed")
     app.register_blueprint(watershed_bp, url_prefix="/api/watershed")
+    app.register_blueprint(watershed_boundary_bp, url_prefix="/api/watershed-boundary")
 
 
 def _register_error_handlers(app) -> None:
@@ -198,3 +201,17 @@ def _ensure_user_site_packages() -> None:
 
     user_site = Path(site.getusersitepackages())
     _add_existing_site_package_dirs([user_site])
+
+
+def _ensure_numpy_compatibility() -> None:
+    """Backfill removed NumPy aliases still referenced by third-party GIS libraries."""
+    try:
+        import numpy as np
+    except ImportError:  # pragma: no cover
+        return
+
+    if not hasattr(np, "in1d"):
+        def _in1d(ar1, ar2, assume_unique=False, invert=False):
+            return np.isin(ar1, ar2, assume_unique=assume_unique, invert=invert)
+
+        np.in1d = _in1d
