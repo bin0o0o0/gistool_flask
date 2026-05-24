@@ -1,6 +1,7 @@
 import type { RouteRecordRaw } from 'vue-router'
 import ComingSoonView from '@/views/ComingSoonView.vue'
 import HomeView from '@/views/HomeView.vue'
+import WatershedBoundaryGeneratorView from '@/views/WatershedBoundaryGeneratorView.vue'
 import WatershedExtractView from '@/views/WatershedExtractView.vue'
 import WorkspaceView from '@/views/WorkspaceView.vue'
 
@@ -16,6 +17,11 @@ export const routes: RouteRecordRaw[] = [
     component: WatershedExtractView
   },
   {
+    path: '/watershed-boundary-generator',
+    name: 'watershed-boundary-generator',
+    component: WatershedBoundaryGeneratorView
+  },
+  {
     path: '/map-output',
     name: 'map-output',
     component: WorkspaceView
@@ -27,7 +33,7 @@ export const routes: RouteRecordRaw[] = [
     props: {
       eyebrow: 'Documentation',
       title: '使用指南整理中',
-      description: '使用指南正在整理中，后续将提供数据准备、APRX 模板、站点 Excel 和出图流程说明。'
+      description: '使用指南正在整理中，后续会补充数据准备、APRX 模板、站点 Excel 和出图流程说明。'
     }
   },
   {

@@ -3,6 +3,7 @@ import { ArrowRight } from '@element-plus/icons-vue'
 
 const navItems = [
   { label: '首页', to: '/' },
+  { label: '生成流域边界', to: '/watershed-boundary-generator' },
   { label: '流域提取', to: '/watershed-extract' },
   { label: '流域出图', to: '/map-output' },
   { label: '使用指南', to: '/guide' }
@@ -95,14 +96,15 @@ const navItems = [
 }
 
 .site-brand strong {
-  font-size: 1.5rem;
+  font-size: 1.28rem;
   line-height: 1.1;
+  white-space: nowrap;
 }
 
 .site-brand small {
   margin-top: 5px;
   color: rgba(218, 244, 255, 0.72);
-  font-size: 0.84rem;
+  font-size: 0.8rem;
 }
 
 .site-nav__links {
