@@ -96,14 +96,15 @@ const navItems = [
 }
 
 .site-brand strong {
-  font-size: 1.5rem;
+  font-size: 1.28rem;
   line-height: 1.1;
+  white-space: nowrap;
 }
 
 .site-brand small {
   margin-top: 5px;
   color: rgba(218, 244, 255, 0.72);
-  font-size: 0.84rem;
+  font-size: 0.8rem;
 }
 
 .site-nav__links {

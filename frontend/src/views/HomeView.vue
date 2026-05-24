@@ -1,19 +1,18 @@
 <script setup lang="ts">
 import { ArrowRight, VideoPlay } from '@element-plus/icons-vue'
+
 import SiteNav from '@/components/SiteNav.vue'
 import heroBackground from '@/assets/home-water-basin-bg.png'
 
 const featureCards = [
   {
     title: '智能水系提取',
-    description:
-      '基于水文拓扑与 DEM 分析，串联河网提取、子流域边界识别和控制点配置流程。',
+    description: '基于水文拓扑与 DEM 分析，自动提取河流网络、子流域边界与出口控制点，打通生成流域边界的工作流。',
     icon: '水'
   },
   {
     title: '高质量专题出图',
-    description:
-      '衔接当前 GISTOOL 出图工作台，支持 APRX 模板、站点样式配置、人工布局和 PNG 导出。',
+    description: '衔接当前 GISTOOL 出图工作台，支持 APRX 模板、站点样式配置、人工布局和 PNG 导出。',
     icon: '图'
   }
 ]
@@ -28,8 +27,7 @@ const featureCards = [
         <p class="home-hero__kicker">智能水文分析与高质量专题制图平台</p>
         <h1 id="home-title">流域提取与可视化出图</h1>
         <p class="home-hero__copy">
-          上传 APRX 模板、流域边界、河流与站点 Excel，完成站点样式配置、人工布局控制、
-          自动出图与成果导出。
+          上传 APRX 模板、流域边界、河流与站点 Excel，支持站点逐点样式配置、人工版式控制、自动出图与成果导出。
         </p>
 
         <div class="home-hero__actions">
@@ -105,7 +103,6 @@ const featureCards = [
   color: rgba(238, 253, 255, 0.88);
   font-size: 1.3rem;
   font-weight: 800;
-  letter-spacing: 0;
 }
 
 .home-hero__kicker::before {
@@ -224,7 +221,6 @@ const featureCards = [
 .capability-card h2 {
   color: #f6fffb;
   font-size: 1.72rem;
-  letter-spacing: 0;
 }
 
 .capability-card p {
