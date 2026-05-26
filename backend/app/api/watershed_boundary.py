@@ -17,6 +17,7 @@ from app.utils.responses import error_response, success_response
 watershed_boundary_bp = Blueprint("watershed_boundary", __name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_VENDOR_PROJECT = PROJECT_ROOT / "backend" / "app" / "gis" / "vendor"
 DEFAULT_EXTERNAL_PROJECT = PROJECT_ROOT.parent / "point_to_basin_shp"
 DEFAULT_SNAP_THRESHOLD = 2000
 DIRMAP = (64, 128, 1, 2, 4, 8, 16, 32)
@@ -197,13 +198,17 @@ def _load_external_boundary_module():
     else:
         candidate = Path(
             current_app.config.get("WATERSHED_BOUNDARY_PROJECT_ROOT")
-            or DEFAULT_EXTERNAL_PROJECT
+            or DEFAULT_VENDOR_PROJECT
         )
     module_path = candidate / "point_to_basin_shp.py"
     if not module_path.exists():
-        raise WatershedBoundaryValidationError(
-            f"point_to_basin_shp project not found: {module_path}"
-        )
+        fallback_path = DEFAULT_EXTERNAL_PROJECT / "point_to_basin_shp.py"
+        if fallback_path.exists():
+            module_path = fallback_path
+        else:
+            raise WatershedBoundaryValidationError(
+                f"point_to_basin_shp project not found: {module_path}"
+            )
 
     module_name = "gistool_point_to_basin_shp"
     if module_name in sys.modules:

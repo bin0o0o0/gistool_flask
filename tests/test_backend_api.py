@@ -378,12 +378,12 @@ def test_config_does_not_use_machine_specific_default_template(tmp_path, monkeyp
 
 def test_config_includes_watershed_defaults(tmp_path):
     """Watershed extraction should have a configurable work root and default DEM path."""
-    from app.core.config import get_config
+    from app.core.config import DEFAULT_WATERSHED_DEM_PATH, get_config
 
     config = get_config({"OUTPUT_FOLDER": str(tmp_path / "outputs")})
 
     assert config.watershed_program_root == (ROOT / "docs" / "program").resolve()
-    assert config.watershed_default_dem_path == Path(r"D:\work\2026\code\data\data\dem\dem.tif")
+    assert config.watershed_default_dem_path == DEFAULT_WATERSHED_DEM_PATH
 
 
 def test_render_endpoint_requires_template_when_no_default_is_configured(tmp_path, monkeypatch):
@@ -1150,6 +1150,75 @@ def test_watershed_boundary_clip_dem_to_bbox_returns_smaller_raster(tmp_path):
     with rasterio.open(clipped_path) as src:
         assert src.width < 10
         assert src.height < 10
+
+
+def test_watershed_boundary_module_prefers_repo_vendor_copy(tmp_path, monkeypatch):
+    """The boundary API should load the vendored point_to_basin_shp module by default."""
+    from app import create_app
+    from app.api import watershed_boundary as watershed_boundary_module
+
+    vendor_dir = tmp_path / "vendor"
+    vendor_dir.mkdir()
+    (vendor_dir / "point_to_basin_shp.py").write_text(
+        'MODULE_SOURCE = "vendor"\n',
+        encoding="utf-8",
+    )
+    external_dir = tmp_path / "external"
+    external_dir.mkdir()
+    (external_dir / "point_to_basin_shp.py").write_text(
+        'MODULE_SOURCE = "external"\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(watershed_boundary_module, "DEFAULT_VENDOR_PROJECT", vendor_dir)
+    monkeypatch.setattr(watershed_boundary_module, "DEFAULT_EXTERNAL_PROJECT", external_dir)
+    sys.modules.pop("gistool_point_to_basin_shp", None)
+
+    app = create_app(
+        {
+            "TESTING": True,
+            "OUTPUT_FOLDER": str(tmp_path / "outputs"),
+            "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+            "RENDERER": FakeRenderer(),
+        }
+    )
+
+    with app.app_context():
+        module = watershed_boundary_module._load_external_boundary_module()
+
+    assert module.MODULE_SOURCE == "vendor"
+
+
+def test_watershed_boundary_module_falls_back_to_external_project(tmp_path, monkeypatch):
+    """The boundary API should fall back to the external project when vendor code is absent."""
+    from app import create_app
+    from app.api import watershed_boundary as watershed_boundary_module
+
+    vendor_dir = tmp_path / "missing-vendor"
+    external_dir = tmp_path / "external"
+    external_dir.mkdir()
+    (external_dir / "point_to_basin_shp.py").write_text(
+        'MODULE_SOURCE = "external"\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(watershed_boundary_module, "DEFAULT_VENDOR_PROJECT", vendor_dir)
+    monkeypatch.setattr(watershed_boundary_module, "DEFAULT_EXTERNAL_PROJECT", external_dir)
+    sys.modules.pop("gistool_point_to_basin_shp", None)
+
+    app = create_app(
+        {
+            "TESTING": True,
+            "OUTPUT_FOLDER": str(tmp_path / "outputs"),
+            "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+            "RENDERER": FakeRenderer(),
+        }
+    )
+
+    with app.app_context():
+        module = watershed_boundary_module._load_external_boundary_module()
+
+    assert module.MODULE_SOURCE == "external"
 
 
 def test_watershed_step2_rejects_invalid_operation(tmp_path):
