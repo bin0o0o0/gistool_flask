@@ -37,7 +37,7 @@ interface WorkflowState {
   breakPoints: BreakPoint[]
 }
 
-const DEFAULT_DEM_PATH = 'D:\\work\\2026\\code\\data\\data\\dem\\dem.tif'
+const DEFAULT_DEM_PATH = 'D:\\work\\data\\data\\dem\\dem.tif'
 
 const steps: Array<{ id: StepId; title: string; endpoint: string; description: string }> = [
   { id: 1, title: '累计流阈值设置', endpoint: '/api/watershed/acc_threshold', description: '上传边界并计算默认面积阈值' },
@@ -663,9 +663,10 @@ watch(watershedIds, () => {
   min-height: 100vh;
   overflow: hidden;
   background:
-    linear-gradient(90deg, rgba(2, 11, 29, 0.98), rgba(2, 11, 29, 0.78) 42%, rgba(4, 26, 44, 0.64)),
+    linear-gradient(180deg, rgba(2, 11, 29, 0.72) 0%, rgba(2, 11, 29, 0.6) 40%, rgba(2, 11, 29, 0.78) 100%),
+    linear-gradient(115deg, rgba(7, 32, 52, 0.68) 0%, rgba(7, 32, 52, 0.34) 46%, rgba(7, 32, 52, 0.08) 100%),
     var(--hero-background) center / cover no-repeat,
-    #03101f;
+    #03162d;
   color: #eefbff;
 }
 

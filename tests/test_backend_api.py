@@ -49,6 +49,27 @@ def test_runtime_site_packages_adds_project_venv_path(tmp_path):
     assert sys.path.index(project_path_text) < sys.path.index(user_path_text)
 
 
+def test_create_app_adds_numpy_in1d_compatibility():
+    """create_app should restore np.in1d for older GIS dependencies on NumPy 2.x."""
+    import numpy as np
+    from app import _ensure_numpy_compatibility
+
+    original = getattr(np, "in1d", None)
+    if hasattr(np, "in1d"):
+        delattr(np, "in1d")
+
+    try:
+        _ensure_numpy_compatibility()
+        assert hasattr(np, "in1d")
+        result = np.in1d([1, 2, 3], [2, 4])
+        assert result.tolist() == [False, True, False]
+    finally:
+        if original is None and hasattr(np, "in1d"):
+            delattr(np, "in1d")
+        elif original is not None:
+            np.in1d = original
+
+
 class FakeRenderer:
     """假的渲染器，用来隔离 API 测试和 ArcPy。
 
@@ -168,6 +189,33 @@ def _watershed_test_app(tmp_path: Path):
     app.extensions["watershed_service_factory"] = FakeWatershedService
     app.extensions["watershed_merge_service_factory"] = FakeMergeDeleteService
     return app
+
+
+def _fake_watershed_boundary_runner(*, dem_path: str, points: list[dict], bbox: dict, snap_threshold: int):
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "dem_path": dem_path,
+                    "bbox": bbox,
+                    "snap_threshold": snap_threshold,
+                    "point_count": len(points),
+                },
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[
+                        [105.0, 27.2],
+                        [105.4, 27.2],
+                        [105.4, 26.9],
+                        [105.0, 26.9],
+                        [105.0, 27.2],
+                    ]],
+                },
+            }
+        ],
+    }
 
 
 def _valid_render_payload(tmp_path: Path) -> dict:
@@ -330,12 +378,12 @@ def test_config_does_not_use_machine_specific_default_template(tmp_path, monkeyp
 
 def test_config_includes_watershed_defaults(tmp_path):
     """Watershed extraction should have a configurable work root and default DEM path."""
-    from app.core.config import get_config
+    from app.core.config import DEFAULT_WATERSHED_DEM_PATH, get_config
 
     config = get_config({"OUTPUT_FOLDER": str(tmp_path / "outputs")})
 
     assert config.watershed_program_root == (ROOT / "docs" / "program").resolve()
-    assert config.watershed_default_dem_path == Path(r"D:\work\2026\code\data\data\dem\dem.tif")
+    assert config.watershed_default_dem_path == DEFAULT_WATERSHED_DEM_PATH
 
 
 def test_render_endpoint_requires_template_when_no_default_is_configured(tmp_path, monkeypatch):
@@ -1017,6 +1065,160 @@ def test_watershed_validate_plan_name_reports_missing_directory(tmp_path):
     body = response.get_json()
     assert body["success"] is True
     assert body["exists"] is False
+
+
+def test_watershed_boundary_generate_uses_default_dem_and_clips_to_bbox(tmp_path):
+    """POST /api/watershed-boundary/generate should use the default DEM path and clip result to the requested rectangle."""
+    app = _watershed_test_app(tmp_path)
+    dem_path = Path(app.config["WATERSHED_DEFAULT_DEM_PATH"])
+    dem_path.write_text("fake dem", encoding="utf-8")
+    app.extensions["watershed_boundary_runner"] = _fake_watershed_boundary_runner
+
+    response = app.test_client().post(
+        "/api/watershed-boundary/generate",
+        json={
+            "point": {"x": 105.2, "y": 27.06},
+            "bbox": {
+                "min_x": 105.1,
+                "min_y": 26.95,
+                "max_x": 105.3,
+                "max_y": 27.1,
+            },
+            "snap_threshold": 2400,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["data"]["dem_path"] == str(dem_path)
+    assert payload["data"]["snap_threshold"] == 2400
+    assert payload["data"]["point"] == {"x": 105.2, "y": 27.06}
+    assert payload["data"]["bbox"] == {
+        "min_x": 105.1,
+        "min_y": 26.95,
+        "max_x": 105.3,
+        "max_y": 27.1,
+    }
+    assert payload["data"]["result"]["type"] == "FeatureCollection"
+    coordinates = payload["data"]["result"]["features"][0]["geometry"]["coordinates"][0]
+    assert coordinates[0] == coordinates[-1]
+    xs = [coord[0] for coord in coordinates[:-1]]
+    ys = [coord[1] for coord in coordinates[:-1]]
+    assert min(xs) == 105.1
+    assert max(xs) == 105.3
+    assert min(ys) == 26.95
+    assert max(ys) == 27.1
+
+
+def test_watershed_boundary_clip_dem_to_bbox_returns_smaller_raster(tmp_path):
+    """The bbox clip helper should write a smaller temporary raster for downstream analysis."""
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+    from app.api.watershed_boundary import _clip_dem_to_bbox
+
+    dem_path = tmp_path / "dem.tif"
+    data = np.arange(100, dtype="float32").reshape((1, 10, 10))
+    transform = from_origin(105.0, 27.2, 0.01, 0.01)
+    with rasterio.open(
+        dem_path,
+        "w",
+        driver="GTiff",
+        height=10,
+        width=10,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=transform,
+    ) as dst:
+        dst.write(data)
+
+    clipped_path = _clip_dem_to_bbox(
+        dem_path=str(dem_path),
+        bbox={
+            "min_x": 105.02,
+            "min_y": 27.12,
+            "max_x": 105.08,
+            "max_y": 27.18,
+        },
+        tmpdir=tmp_path,
+    )
+
+    assert clipped_path != dem_path
+    assert clipped_path.exists()
+    with rasterio.open(clipped_path) as src:
+        assert src.width < 10
+        assert src.height < 10
+
+
+def test_watershed_boundary_module_prefers_repo_vendor_copy(tmp_path, monkeypatch):
+    """The boundary API should load the vendored point_to_basin_shp module by default."""
+    from app import create_app
+    from app.api import watershed_boundary as watershed_boundary_module
+
+    vendor_dir = tmp_path / "vendor"
+    vendor_dir.mkdir()
+    (vendor_dir / "point_to_basin_shp.py").write_text(
+        'MODULE_SOURCE = "vendor"\n',
+        encoding="utf-8",
+    )
+    external_dir = tmp_path / "external"
+    external_dir.mkdir()
+    (external_dir / "point_to_basin_shp.py").write_text(
+        'MODULE_SOURCE = "external"\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(watershed_boundary_module, "DEFAULT_VENDOR_PROJECT", vendor_dir)
+    monkeypatch.setattr(watershed_boundary_module, "DEFAULT_EXTERNAL_PROJECT", external_dir)
+    sys.modules.pop("gistool_point_to_basin_shp", None)
+
+    app = create_app(
+        {
+            "TESTING": True,
+            "OUTPUT_FOLDER": str(tmp_path / "outputs"),
+            "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+            "RENDERER": FakeRenderer(),
+        }
+    )
+
+    with app.app_context():
+        module = watershed_boundary_module._load_external_boundary_module()
+
+    assert module.MODULE_SOURCE == "vendor"
+
+
+def test_watershed_boundary_module_falls_back_to_external_project(tmp_path, monkeypatch):
+    """The boundary API should fall back to the external project when vendor code is absent."""
+    from app import create_app
+    from app.api import watershed_boundary as watershed_boundary_module
+
+    vendor_dir = tmp_path / "missing-vendor"
+    external_dir = tmp_path / "external"
+    external_dir.mkdir()
+    (external_dir / "point_to_basin_shp.py").write_text(
+        'MODULE_SOURCE = "external"\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(watershed_boundary_module, "DEFAULT_VENDOR_PROJECT", vendor_dir)
+    monkeypatch.setattr(watershed_boundary_module, "DEFAULT_EXTERNAL_PROJECT", external_dir)
+    sys.modules.pop("gistool_point_to_basin_shp", None)
+
+    app = create_app(
+        {
+            "TESTING": True,
+            "OUTPUT_FOLDER": str(tmp_path / "outputs"),
+            "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+            "RENDERER": FakeRenderer(),
+        }
+    )
+
+    with app.app_context():
+        module = watershed_boundary_module._load_external_boundary_module()
+
+    assert module.MODULE_SOURCE == "external"
 
 
 def test_watershed_step2_rejects_invalid_operation(tmp_path):
