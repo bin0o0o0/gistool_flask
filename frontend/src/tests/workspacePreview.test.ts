@@ -55,7 +55,19 @@ describe('buildWorkspacePreviewData', () => {
     expect(preview.stationLayer.features).toHaveLength(1)
     expect(preview.stationLayer.features[0].properties).toMatchObject({
       layerName: 'StationLayer1',
-      label: 'Station A'
+      label: 'Station A',
+      symbol: {
+        shape: 'circle',
+        color: '#00a651',
+        size_pt: 20,
+        rotation_deg: 0
+      },
+      text: {
+        enabled: true,
+        color: '#000000',
+        font_size_pt: 16,
+        position: 'top_right'
+      }
     })
     expect(preview.layoutCard.paperLabel).toBe('1600 x 1200 / 150 DPI')
   })
@@ -63,10 +75,83 @@ describe('buildWorkspacePreviewData', () => {
   it('falls back to scaffold preview when no uploads are ready', () => {
     const preview = buildWorkspacePreviewData(createWorkspaceForm())
 
-    expect(preview.basinLayer.features).toHaveLength(1)
-    expect(preview.riverLayer.features).toHaveLength(2)
+    expect(preview.basinLayer.features).toHaveLength(0)
+    expect(preview.riverLayer.features).toHaveLength(0)
     expect(preview.stationLayer.features).toHaveLength(0)
     expect(preview.layoutCard.legendEnabled).toBe(true)
+  })
+
+  it('builds layout preview boxes from existing layout fields', () => {
+    const form = createWorkspaceForm()
+    const preview = buildWorkspacePreviewData(form)
+
+    expect(preview.layoutPreview.mapFrame.style).toMatchObject({
+      left: '2.42%',
+      bottom: '3.65%',
+      width: '95.24%',
+      height: '95.50%'
+    })
+    expect(preview.layoutPreview.title?.text).toBe('Basin river network map')
+    expect(preview.layoutPreview.scaleBar?.style.width).toBe('34.12%')
+    expect(preview.layoutPreview.northArrow?.style.height).toBe('8.13%')
+  })
+
+  it('omits the legend overlay when legend is disabled', () => {
+    const form = createWorkspaceForm()
+    form.layout.elements.legend.enabled = false
+
+    const preview = buildWorkspacePreviewData(form)
+
+    expect(preview.layoutPreview.legend).toBeNull()
+  })
+
+  it('uses legend name overrides and legend style in the overlay data', () => {
+    const form = createWorkspaceForm()
+    form.inputs.basin_boundaries.push({
+      id: 'basin-1',
+      name: 'Default Basin',
+      path: 'D:/uploads/basin.geojson',
+      style: {
+        boundary_color: '#1d3557',
+        boundary_width_pt: 1.4,
+        fill_color: '#d7ecf2',
+        fill_opacity: 0.45
+      }
+    })
+    form.layout.legend_style.name_overrides = [
+      {
+        source_type: 'basin',
+        source_key: 'basin-layer-1',
+        default_name: 'Default Basin',
+        legend_name: '上游流域'
+      }
+    ]
+
+    const preview = buildWorkspacePreviewData(form)
+
+    expect(preview.layoutPreview.legend?.rows[0]).toMatchObject({
+      label: '上游流域',
+      sourceType: 'basin'
+    })
+    expect(preview.layoutPreview.legend?.patchStyle).toMatchObject({
+      width: '12px',
+      height: '6px',
+      marginRight: '2px'
+    })
+    expect(preview.layoutPreview.legend?.rowGapPx).toBe(2)
+  })
+
+  it('changes layout preview coordinates when layout fields change', () => {
+    const form = createWorkspaceForm()
+    const original = buildWorkspacePreviewData(form).layoutPreview.mapFrame.style.left
+
+    form.layout.elements.map_frame.x = 20
+    form.layout.elements.legend.x = 110
+    const changed = buildWorkspacePreviewData(form)
+
+    expect(changed.layoutPreview.mapFrame.style.left).not.toBe(original)
+    expect(changed.layoutPreview.mapFrame.style.left).toBe('7.41%')
+    expect(changed.layoutPreview.legend?.style.left).toBe('40.74%')
   })
 })
 

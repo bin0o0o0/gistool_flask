@@ -107,7 +107,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const configuredSteps = ref<Record<ConfigurableStepId, boolean>>({
     output: false,
     style: false,
-    stations: false
+    'stations-style': false,
+    'stations-attrs': false
   })
 
   const uploads = ref<Record<WorkspaceUploadKind, UploadedFileState>>({
@@ -209,7 +210,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         ) &&
         form.value.inputs.river_networks.every((layer) => layer.name && layer.style.color && layer.style.width_pt > 0)
     ),
-    stations: form.value.inputs.station_layers.some((layer) => Boolean(layer.upload))
+    'stations-style': form.value.inputs.station_layers.some((layer) => Boolean(layer.upload)),
+    'stations-attrs': form.value.inputs.station_layers.some((layer) => Boolean(layer.upload))
   }))
   const previewImageUrl = computed(() => {
     if (!renderResult.value?.output_png || renderResult.value.status !== 'succeeded') return ''

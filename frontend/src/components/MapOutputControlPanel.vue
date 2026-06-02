@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { Download, MagicStick, UploadFilled, View } from '@element-plus/icons-vue'
 
 import { collectLegendNameOverrides } from '@/utils/legendNameOverrides'
+import { nearestBoxCornerInMapFrame, placeBoxInMapFrame, type LayoutCorner } from '@/utils/layoutPosition'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type {
   LegendNameOverrideForm,
@@ -37,6 +38,12 @@ const layoutFields: Array<{ key: keyof LayoutBoxForm; label: string }> = [
   { key: 'height', label: '高' }
 ]
 const layoutElementKeys = ['legend', 'scale_bar', 'north_arrow'] as const
+const legendCornerOptions: Array<{ key: LayoutCorner; label: string }> = [
+  { key: 'top-left', label: '左上角' },
+  { key: 'top-right', label: '右上角' },
+  { key: 'bottom-right', label: '右下角' },
+  { key: 'bottom-left', label: '左下角' }
+]
 const exportFormats = ref({
   png: true,
   pdf: true,
@@ -87,7 +94,7 @@ async function handleStationSelection(layer: StationLayerForm, event: Event) {
     return
   }
   ElMessage.success('站点 Excel 已上传')
-  store.markStepConfigured('stations')
+  store.markStepConfigured('stations-style')
 }
 
 function setPaperPreset(width: number, height: number) {
@@ -149,17 +156,14 @@ function colorLabel(key: string, value: string) {
   return `${labels[key] || key} ${value}`
 }
 
-function activeLegendPosition() {
-  const legend = store.form.layout.elements.legend
-  if (legend.x > 180) return 'right'
-  if (legend.x > 80) return 'center'
-  return 'left'
+function activeLegendCorner() {
+  return nearestBoxCornerInMapFrame(store.form.layout.elements.legend, store.form.layout.elements.map_frame)
 }
 
-function setLegendPosition(position: 'left' | 'center' | 'right') {
-  if (position === 'left') store.form.layout.elements.legend.x = 12.19
-  if (position === 'center') store.form.layout.elements.legend.x = 110
-  if (position === 'right') store.form.layout.elements.legend.x = 196
+function setLegendCorner(corner: LayoutCorner) {
+  const next = placeBoxInMapFrame(store.form.layout.elements.legend, store.form.layout.elements.map_frame, corner)
+  store.form.layout.elements.legend.x = next.x
+  store.form.layout.elements.legend.y = next.y
   store.markStepConfigured('output')
 }
 
@@ -189,20 +193,20 @@ function markOutput() {
 
 function applyLayerSettings(layer: StationLayerForm) {
   store.applyLayerStyleToStationPoints(layer.id)
-  store.markStepConfigured('stations')
+  store.markStepConfigured('stations-style')
 }
 
 function syncLayerColor(layer: StationLayerForm) {
   store.syncPresetColor(layer)
-  store.markStepConfigured('stations')
+  store.markStepConfigured('stations-style')
 }
 
 function syncPointColor(point: StationPointForm) {
   store.syncPointPresetColor(point)
-  store.markStepConfigured('stations')
+  store.markStepConfigured('stations-style')
 }
 
-function onStepBack(step: 'data' | 'style' | 'stations' | 'output') {
+function onStepBack(step: 'data' | 'style' | 'stations-style' | 'stations-attrs' | 'output') {
   store.setActiveStep(step)
 }
 
@@ -333,27 +337,36 @@ function onStepBack(step: 'data' | 'style' | 'stations' | 'output') {
 
       <div class="action-row action-row--bottom">
         <button class="secondary-cta" type="button" @click="onStepBack('data')">返回数据</button>
-        <button class="primary-cta" type="button" @click="onStepBack('stations')">下一步：出图参数</button>
+        <button class="primary-cta" type="button" @click="onStepBack('stations-style')">下一步：标注样式</button>
       </div>
     </section>
 
-    <section v-else-if="store.activeStep === 'stations'" class="step-panel">
+    <section v-else-if="store.activeStep === 'stations-style'" class="step-panel">
       <div class="section-title">
         <el-icon><View /></el-icon>
-        <span>标注与图例</span>
+        <span>标注样式与位置</span>
       </div>
 
       <div class="step-body step-body--scroll">
-        <div v-for="(layer, index) in stationLayers" :key="layer.id" class="style-block">
-          <div class="style-block__head style-block__head--stack">
-            <div class="layer-headline">
-              <input v-model="layer.layer_name" class="ghost-input" @input="store.markStepConfigured('stations')" />
-              <small v-if="layer.upload" class="path-text">{{ layer.upload.original_name }}</small>
-            </div>
-            <div class="button-cluster">
-              <button class="mini-action" type="button" @click="openInput(stationInputId(layer.id))">上传 Excel</button>
-              <button class="mini-action" type="button" @click="applyLayerSettings(layer)">应用到全部点位</button>
-            </div>
+        <div v-for="(layer, index) in stationLayers" :key="layer.id" class="style-block station-layer-card">
+          <div class="station-layer-header">
+            <input v-model="layer.layer_name" class="ghost-input" @input="store.markStepConfigured('stations-style')" />
+            <button
+              v-if="stationLayers.length > 1"
+              class="layer-remove-btn"
+              type="button"
+              @click="store.removeStationLayer(layer.id)"
+              title="删除站点层"
+            >
+              ×
+            </button>
+          </div>
+          <small v-if="layer.upload" class="path-text">{{ layer.upload.original_name }}</small>
+
+          <div class="station-action-bar">
+            <button class="mini-action" type="button" @click="openInput(stationInputId(layer.id))">上传 Excel</button>
+            <a class="mini-action" href="/station_template.xlsx" download="station_points_template.xlsx">下载模板</a>
+            <button class="mini-action" type="button" @click="applyLayerSettings(layer)">应用到全部点位</button>
             <input
               :id="stationInputId(layer.id)"
               class="native-file-input"
@@ -363,99 +376,155 @@ function onStepBack(step: 'data' | 'style' | 'stations' | 'output') {
             />
           </div>
 
-          <div class="form-grid">
-            <label>
-              <span>工作表</span>
-              <el-input v-model="layer.sheet_name" @change="store.markStepConfigured('stations')" />
-            </label>
-            <label>
-              <span>经度字段</span>
-              <el-select v-model="layer.x_field" filterable allow-create @change="store.markStepConfigured('stations')">
-                <el-option v-for="header in layer.headers" :key="header" :label="header" :value="header" />
-              </el-select>
-            </label>
-            <label>
-              <span>纬度字段</span>
-              <el-select v-model="layer.y_field" filterable allow-create @change="store.markStepConfigured('stations')">
-                <el-option v-for="header in layer.headers" :key="header" :label="header" :value="header" />
-              </el-select>
-            </label>
-            <label>
-              <span>名称字段</span>
-              <el-select v-model="layer.name_field" filterable allow-create @change="store.setStationNameField(layer.id, layer.name_field)">
-                <el-option v-for="header in layer.headers" :key="header" :label="header" :value="header" />
-              </el-select>
-            </label>
+          <div class="symbol-preview-row">
+            <div class="symbol-preview-svg" :style="{ transform: `rotate(${layer.symbol.rotation_deg}deg)` }">
+              <svg v-if="layer.symbol.shape === 'circle'" viewBox="0 0 40 40" width="32" height="32">
+                <circle cx="20" cy="20" :r="Math.max(4, layer.symbol.size_pt / 2)" :fill="layer.symbol.color" stroke="#fff" stroke-width="2" />
+              </svg>
+              <svg v-else-if="layer.symbol.shape === 'triangle'" viewBox="0 0 40 40" width="32" height="32">
+                <polygon points="20,4 36,36 4,36" :fill="layer.symbol.color" stroke="#fff" stroke-width="2" />
+              </svg>
+              <svg v-else-if="layer.symbol.shape === 'square'" viewBox="0 0 40 40" width="32" height="32">
+                <rect x="4" y="4" width="32" height="32" :fill="layer.symbol.color" stroke="#fff" stroke-width="2" />
+              </svg>
+              <svg v-else-if="layer.symbol.shape === 'diamond'" viewBox="0 0 40 40" width="32" height="32">
+                <polygon points="20,4 36,20 20,36 4,20" :fill="layer.symbol.color" stroke="#fff" stroke-width="2" />
+              </svg>
+              <svg v-else-if="layer.symbol.shape === 'rectangle'" viewBox="0 0 40 40" width="32" height="32">
+                <rect x="4" y="10" width="32" height="20" :fill="layer.symbol.color" stroke="#fff" stroke-width="2" />
+              </svg>
+            </div>
+            <div class="symbol-preview-info">
+              <span>{{ shapeLabel(layer.symbol.shape) }}</span>
+              <span :style="{ color: layer.symbol.color }">{{ layer.symbol.color }}</span>
+              <span>{{ layer.symbol.size_pt }}pt</span>
+            </div>
           </div>
 
-          <div class="style-row style-row--station">
-            <span class="style-row__name">{{ stationLabel(index) }}</span>
-            <el-select v-model="layer.symbol.shape" class="row-input row-input--select" @change="store.markStepConfigured('stations')">
-              <el-option v-for="shape in store.options.station_symbol_shapes" :key="shape" :label="shapeLabel(shape)" :value="shape" />
-            </el-select>
-            <el-input-number v-model="layer.symbol.size_pt" :min="4" :step="1" class="row-input row-input--num" @change="store.markStepConfigured('stations')" />
-          </div>
-
-          <div class="form-grid">
-            <label>
-              <span>颜色预设</span>
-              <el-select v-model="layer.symbol.color_preset" @change="syncLayerColor(layer)">
+          <div class="attr-row attr-row--6">
+            <div class="attr-cell">
+              <span class="attr-label">形状</span>
+              <el-select v-model="layer.symbol.shape" size="small" @change="store.markStepConfigured('stations-style')">
+                <el-option v-for="shape in store.options.station_symbol_shapes" :key="shape" :label="shapeLabel(shape)" :value="shape" />
+              </el-select>
+            </div>
+            <div class="attr-cell">
+              <span class="attr-label">大小</span>
+              <el-input-number v-model="layer.symbol.size_pt" :min="4" :step="1" size="small" @change="store.markStepConfigured('stations-style')" />
+            </div>
+            <div class="attr-cell">
+              <span class="attr-label">颜色</span>
+              <el-select v-model="layer.symbol.color_preset" size="small" @change="syncLayerColor(layer)">
                 <el-option
                   v-for="(value, key) in store.options.station_symbol_color_presets"
                   :key="key"
-                  :label="colorLabel(key, value)"
                   :value="key"
-                />
+                >
+                  <span class="color-swatch" :style="{ backgroundColor: value }"></span>
+                  <span>{{ colorLabel(key, value) }}</span>
+                </el-option>
               </el-select>
-            </label>
-            <label>
-              <span>自定义颜色</span>
-              <el-input v-model="layer.symbol.color" class="row-input row-input--color" @change="store.markStepConfigured('stations')" />
-            </label>
-            <label>
-              <span>旋转角度</span>
-              <el-input-number v-model="layer.symbol.rotation_deg" :min="-180" :max="180" :step="5" @change="store.markStepConfigured('stations')" />
-            </label>
-            <label>
-              <span>标注位置</span>
-              <el-select v-model="layer.label.position" @change="store.markStepConfigured('stations')">
+            </div>
+            <div class="attr-cell">
+              <span class="attr-label">旋转</span>
+              <el-input-number v-model="layer.symbol.rotation_deg" :min="-180" :max="180" :step="5" size="small" @change="store.markStepConfigured('stations-style')" />
+            </div>
+            <div class="attr-cell">
+              <span class="attr-label">位置</span>
+              <el-select v-model="layer.label.position" size="small" @change="store.markStepConfigured('stations-style')">
                 <el-option v-for="position in store.options.label_positions" :key="position" :label="positionLabel(position)" :value="position" />
               </el-select>
-            </label>
-            <label>
-              <span>标注字号</span>
-              <el-input-number v-model="layer.label.font_size_pt" :min="8" :step="1" @change="store.markStepConfigured('stations')" />
-            </label>
-            <label>
-              <span>标注颜色</span>
-              <el-input v-model="layer.label.color" class="row-input row-input--color" @change="store.markStepConfigured('stations')" />
-            </label>
+            </div>
+            <div class="attr-cell">
+              <span class="attr-label">字号</span>
+              <el-input-number v-model="layer.label.font_size_pt" :min="8" :step="1" size="small" @change="store.markStepConfigured('stations-style')" />
+            </div>
           </div>
 
           <details v-if="layer.points.length" class="detail-block">
             <summary>逐点样式（{{ layer.points.length }} 个点）</summary>
             <div class="point-list">
-              <div v-for="point in layer.points.slice(0, 6)" :key="`${layer.id}-${point.row_number}`" class="point-row">
-                <strong>{{ point.display_name }}</strong>
-                <div class="point-row__controls">
-                  <el-select v-model="point.symbol.shape" size="small" @change="store.markStepConfigured('stations')">
-                    <el-option v-for="shape in store.options.station_symbol_shapes" :key="shape" :label="shapeLabel(shape)" :value="shape" />
-                  </el-select>
-                  <el-select v-model="point.symbol.color_preset" size="small" @change="syncPointColor(point)">
-                    <el-option
-                      v-for="(value, key) in store.options.station_symbol_color_presets"
-                      :key="key"
-                      :label="colorLabel(key, value)"
-                      :value="key"
-                    />
-                  </el-select>
-                  <el-switch v-model="point.label.enabled" @change="store.markStepConfigured('stations')" />
+              <div v-for="point in layer.points" :key="`${layer.id}-${point.row_number}`" class="point-row point-row--full">
+                <div class="point-header">
+                  <div class="symbol-preview-svg" :style="{ transform: `rotate(${point.symbol.rotation_deg}deg)` }">
+                    <svg v-if="point.symbol.shape === 'circle'" viewBox="0 0 40 40" width="28" height="28">
+                      <circle cx="20" cy="20" :r="Math.max(4, point.symbol.size_pt / 2)" :fill="point.symbol.color" stroke="#fff" stroke-width="2" />
+                    </svg>
+                    <svg v-else-if="point.symbol.shape === 'triangle'" viewBox="0 0 40 40" width="28" height="28">
+                      <polygon points="20,4 36,36 4,36" :fill="point.symbol.color" stroke="#fff" stroke-width="2" />
+                    </svg>
+                    <svg v-else-if="point.symbol.shape === 'square'" viewBox="0 0 40 40" width="28" height="28">
+                      <rect x="4" y="4" width="32" height="32" :fill="point.symbol.color" stroke="#fff" stroke-width="2" />
+                    </svg>
+                    <svg v-else-if="point.symbol.shape === 'diamond'" viewBox="0 0 40 40" width="28" height="28">
+                      <polygon points="20,4 36,20 20,36 4,20" :fill="point.symbol.color" stroke="#fff" stroke-width="2" />
+                    </svg>
+                    <svg v-else-if="point.symbol.shape === 'rectangle'" viewBox="0 0 40 40" width="28" height="28">
+                      <rect x="4" y="10" width="32" height="20" :fill="point.symbol.color" stroke="#fff" stroke-width="2" />
+                    </svg>
+                  </div>
+                  <strong>{{ point.display_name }}</strong>
+                </div>
+                <div class="attr-row attr-row--6">
+                  <div class="attr-cell">
+                    <span class="attr-label">形状</span>
+                    <el-select v-model="point.symbol.shape" size="small" @change="store.markStepConfigured('stations-style')">
+                      <el-option v-for="shape in store.options.station_symbol_shapes" :key="shape" :label="shapeLabel(shape)" :value="shape" />
+                    </el-select>
+                  </div>
+                  <div class="attr-cell">
+                    <span class="attr-label">大小</span>
+                    <el-input-number v-model="point.symbol.size_pt" :min="4" :step="1" size="small" @change="store.markStepConfigured('stations-style')" />
+                  </div>
+                  <div class="attr-cell">
+                    <span class="attr-label">颜色</span>
+                    <el-select v-model="point.symbol.color_preset" size="small" @change="syncPointColor(point)">
+                      <el-option
+                        v-for="(value, key) in store.options.station_symbol_color_presets"
+                        :key="key"
+                        :value="key"
+                      >
+                        <span class="color-swatch" :style="{ backgroundColor: value }"></span>
+                        <span>{{ colorLabel(key, value) }}</span>
+                      </el-option>
+                    </el-select>
+                  </div>
+                  <div class="attr-cell">
+                    <span class="attr-label">旋转</span>
+                    <el-input-number v-model="point.symbol.rotation_deg" :min="-180" :max="180" :step="5" size="small" @change="store.markStepConfigured('stations-style')" />
+                  </div>
+                  <div class="attr-cell">
+                    <span class="attr-label">位置</span>
+                    <el-select v-model="point.label.position" size="small" @change="store.markStepConfigured('stations-style')">
+                      <el-option v-for="position in store.options.label_positions" :key="position" :label="positionLabel(position)" :value="position" />
+                    </el-select>
+                  </div>
+                  <div class="attr-cell">
+                    <span class="attr-label">字号</span>
+                    <el-input-number v-model="point.label.font_size_pt" :min="8" :step="1" size="small" @change="store.markStepConfigured('stations-style')" />
+                  </div>
                 </div>
               </div>
             </div>
           </details>
         </div>
 
+        <button class="mini-action add-layer-btn" type="button" @click="store.addStationLayer()">+ 添加站点层</button>
+      </div>
+
+      <div class="action-row action-row--bottom">
+        <button class="secondary-cta" type="button" @click="onStepBack('style')">返回样式</button>
+        <button class="primary-cta" type="button" @click="onStepBack('stations-attrs')">下一步：标注属性</button>
+      </div>
+    </section>
+
+    <section v-else-if="store.activeStep === 'stations-attrs'" class="step-panel">
+      <div class="section-title">
+        <el-icon><View /></el-icon>
+        <span>标注属性</span>
+      </div>
+
+      <div class="step-body step-body--scroll">
         <div class="style-block">
           <div class="subsection-title">图例与标注总设置</div>
 
@@ -464,8 +533,8 @@ function onStepBack(step: 'data' | 'style' | 'stations' | 'output') {
             <el-select v-model="store.form.layout.basemap" class="stretch">
               <el-option v-for="font in fontOptions" :key="font" :label="font" :value="font" />
             </el-select>
-              <el-input-number v-model="firstStationLayer.label.font_size_pt" :min="8" :step="1" class="tiny-num" @change="store.markStepConfigured('stations')" />
-            <el-input v-model="firstStationLayer.label.color" class="color-box" @change="store.markStepConfigured('stations')" />
+              <el-input-number v-model="firstStationLayer.label.font_size_pt" :min="8" :step="1" class="tiny-num" @change="store.markStepConfigured('stations-attrs')" />
+            <el-input v-model="firstStationLayer.label.color" class="color-box" @change="store.markStepConfigured('stations-attrs')" />
           </div>
 
           <div class="slider-row">
@@ -494,14 +563,9 @@ function onStepBack(step: 'data' | 'style' | 'stations' | 'output') {
             </label>
           </div>
 
-          <div class="legend-position">
+          <div v-if="false" class="legend-position">
             <span>图例位置</span>
-            <div class="legend-position__buttons">
-              <button :class="{ active: activeLegendPosition() === 'left' }" type="button" @click="setLegendPosition('left')"></button>
-              <button :class="{ active: activeLegendPosition() === 'center' }" type="button" @click="setLegendPosition('center')"></button>
-              <button :class="{ active: activeLegendPosition() === 'right' }" type="button" @click="setLegendPosition('right')"></button>
-              <button class="active accent" type="button" @click="$emit('preview-layout')"></button>
-            </div>
+            <div class="legend-position__buttons"></div>
           </div>
 
           <div class="inline-form inline-form--legend">
@@ -531,7 +595,7 @@ function onStepBack(step: 'data' | 'style' | 'stations' | 'output') {
       </div>
 
       <div class="action-row action-row--bottom">
-        <button class="secondary-cta" type="button" @click="onStepBack('style')">返回样式</button>
+        <button class="secondary-cta" type="button" @click="onStepBack('stations-style')">返回标注样式</button>
         <button class="primary-cta" type="button" @click="onStepBack('output')">下一步：导出结果</button>
       </div>
     </section>
@@ -670,6 +734,24 @@ function onStepBack(step: 'data' | 'style' | 'stations' | 'output') {
                     <span>白底</span>
                     <el-switch v-model="store.form.layout.elements.legend.background" @change="markOutput" />
                   </label>
+                  <div v-if="item === 'legend'" class="legend-corner-picker">
+                    <div>
+                      <strong>经典位置</strong>
+                      <span>放到地图框白底内</span>
+                    </div>
+                    <div class="legend-corner-picker__buttons">
+                      <button
+                        v-for="corner in legendCornerOptions"
+                        :key="corner.key"
+                        :class="{ active: activeLegendCorner() === corner.key }"
+                        :data-corner="corner.key"
+                        type="button"
+                        :aria-label="`图例${corner.label}`"
+                        :title="corner.label"
+                        @click="setLegendCorner(corner.key)"
+                      ></button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -763,6 +845,7 @@ function onStepBack(step: 'data' | 'style' | 'stations' | 'output') {
   display: grid;
   gap: 12px;
   min-height: 0;
+  align-content: start;
 }
 
 .step-body--scroll {
@@ -795,8 +878,8 @@ function onStepBack(step: 'data' | 'style' | 'stations' | 'output') {
 .layout-block,
 .layout-subblock {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid rgba(168, 247, 255, 0.12);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.035);
@@ -855,7 +938,8 @@ function onStepBack(step: 'data' | 'style' | 'stations' | 'output') {
 .pill-grid button,
 .secondary-cta,
 .primary-cta,
-.legend-position__buttons button {
+.legend-position__buttons button,
+.legend-corner-picker__buttons button {
   border: 1px solid rgba(168, 247, 255, 0.14);
   border-radius: 8px;
   cursor: pointer;
@@ -1120,6 +1204,99 @@ function onStepBack(step: 'data' | 'style' | 'stations' | 'output') {
   background: rgba(130, 255, 240, 0.14);
 }
 
+.legend-corner-picker {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(168, 247, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.legend-corner-picker strong,
+.legend-corner-picker span {
+  display: block;
+}
+
+.legend-corner-picker strong {
+  color: #eefcff;
+  font-size: 0.86rem;
+}
+
+.legend-corner-picker span {
+  margin-top: 2px;
+  color: rgba(232, 247, 255, 0.58);
+  font-size: 0.72rem;
+}
+
+.legend-corner-picker__buttons {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.legend-corner-picker__buttons::before {
+  position: absolute;
+  inset: 8px;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 5px;
+  content: "";
+  pointer-events: none;
+}
+
+.legend-corner-picker__buttons button {
+  position: relative;
+  z-index: 1;
+  min-height: 28px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.legend-corner-picker__buttons button::after {
+  position: absolute;
+  width: 15px;
+  height: 9px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.35);
+  content: "";
+}
+
+.legend-corner-picker__buttons button[data-corner='top-left']::after {
+  top: 6px;
+  left: 7px;
+}
+
+.legend-corner-picker__buttons button[data-corner='top-right']::after {
+  top: 6px;
+  right: 7px;
+}
+
+.legend-corner-picker__buttons button[data-corner='bottom-right']::after {
+  right: 7px;
+  bottom: 6px;
+}
+
+.legend-corner-picker__buttons button[data-corner='bottom-left']::after {
+  bottom: 6px;
+  left: 7px;
+}
+
+.legend-corner-picker__buttons button.active {
+  border-color: rgba(130, 255, 240, 0.58);
+  background: rgba(130, 255, 240, 0.16);
+}
+
+.legend-corner-picker__buttons button.active::after {
+  background: #82fff0;
+}
+
 .toggle-inline {
   display: inline-flex;
   align-items: center;
@@ -1269,6 +1446,139 @@ function onStepBack(step: 'data' | 'style' | 'stations' | 'output') {
   color: rgba(226, 248, 239, 0.76);
 }
 
+.station-layer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.station-layer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.layer-remove-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 128, 128, 0.3);
+  border-radius: 6px;
+  background: rgba(93, 34, 34, 0.3);
+  color: #ff9999;
+  cursor: pointer;
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.station-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.symbol-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid rgba(168, 247, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.symbol-preview-svg {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.symbol-preview-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  font-size: 0.82rem;
+  color: rgba(230, 244, 250, 0.7);
+}
+
+.symbol-preview-info span:first-child {
+  color: #edf9ff;
+  font-weight: 700;
+}
+
+.attr-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.attr-row--6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.attr-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.attr-label {
+  font-size: 0.76rem;
+  color: rgba(232, 247, 255, 0.65);
+  font-weight: 600;
+}
+
+.attr-cell--color {
+  min-width: 0;
+}
+
+.color-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  vertical-align: middle;
+}
+
+.add-layer-btn {
+  align-self: flex-start;
+  border-style: dashed;
+  font-weight: 700;
+}
+
+.point-row--full {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.point-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.point-header .symbol-preview-svg {
+  width: 32px;
+  height: 32px;
+}
+
+.point-header strong {
+  font-size: 0.88rem;
+  color: #eafcff;
+}
+
 @media (max-width: 860px) {
   .style-row,
   .style-row--station,
@@ -1286,6 +1596,14 @@ function onStepBack(step: 'data' | 'style' | 'stations' | 'output') {
 
   .pill-grid,
   .pill-grid--tight {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .attr-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .attr-row--6 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

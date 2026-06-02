@@ -27,14 +27,14 @@ describe('workspace store navigation', () => {
     mocks.uploadMany.mockReset()
   })
 
-  it('starts on data step and can switch to stations', () => {
+  it('starts on data step and can switch to stations-style', () => {
     const store = useWorkspaceStore()
 
     expect(store.activeStep).toBe('data')
 
-    store.setActiveStep('stations')
+    store.setActiveStep('stations-style')
 
-    expect(store.activeStep).toBe('stations')
+    expect(store.activeStep).toBe('stations-style')
   })
 
   it('uses the approved manual layout defaults from frontend_20260423-8', () => {
@@ -70,7 +70,8 @@ describe('workspace store navigation', () => {
     expect(store.stepReadiness.data).toBe(false)
     expect(store.stepReadiness.output).toBe(false)
     expect(store.stepReadiness.style).toBe(false)
-    expect(store.stepReadiness.stations).toBe(false)
+    expect(store.stepReadiness['stations-style']).toBe(false)
+    expect(store.stepReadiness['stations-attrs']).toBe(false)
 
     store.uploads.template_project.result = fakeUpload('template.aprx')
     store.form.inputs.basin_boundaries.push({
@@ -98,7 +99,8 @@ describe('workspace store navigation', () => {
     store.form.inputs.station_layers[0].upload = fakeUpload('stations.xlsx', 'station_excel')
 
     expect(store.stepReadiness.data).toBe(true)
-    expect(store.stepReadiness.stations).toBe(true)
+    expect(store.stepReadiness['stations-style']).toBe(true)
+    expect(store.stepReadiness['stations-attrs']).toBe(true)
     expect(store.stepReadiness.output).toBe(false)
     expect(store.stepReadiness.style).toBe(false)
 

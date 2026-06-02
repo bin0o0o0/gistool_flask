@@ -38,11 +38,9 @@ describe('WorkspaceSidebar', () => {
 
     expect(text).toContain('数据准备')
     expect(text).toContain('图层配置')
-    expect(text).toContain('出图参数')
+    expect(text).toContain('标注样式与位置')
+    expect(text).toContain('标注属性')
     expect(text).toContain('导出结果')
-    expect(text).toContain('流域边界')
-    expect(text).toContain('河流网络')
-    expect(text).toContain('站点数据')
   })
 })
 

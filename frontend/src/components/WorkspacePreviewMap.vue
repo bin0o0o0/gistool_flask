@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import 'ol/ol.css'
 
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
 import type Feature from 'ol/Feature'
+import type { FeatureLike } from 'ol/Feature'
 import type Geometry from 'ol/geom/Geometry'
 import GeoJSON from 'ol/format/GeoJSON'
 import TileLayer from 'ol/layer/Tile'
@@ -13,7 +14,7 @@ import { createEmpty, extend as extendExtent, isEmpty } from 'ol/extent'
 import { fromLonLat } from 'ol/proj'
 import OSM from 'ol/source/OSM'
 import VectorSource from 'ol/source/Vector'
-import { Circle as CircleStyle, Fill, Stroke, Style } from 'ol/style'
+import { Circle as CircleStyle, Fill, RegularShape, Stroke, Style, Text } from 'ol/style'
 
 import { renderApi } from '@/api/render'
 import type { RenderResult, WorkspaceForm } from '@/types'
@@ -55,16 +56,74 @@ const riverLayer = new VectorLayer({
 
 const stationLayer = new VectorLayer({
   source: stationSource,
-  style: new Style({
-    image: new CircleStyle({
-      radius: 5,
-      fill: new Fill({ color: '#375bff' }),
-      stroke: new Stroke({ color: '#ffffff', width: 2 })
-    })
-  })
+  style: stationStyle
 })
 
 let map: OLMap | null = null
+
+const mapFrameStyle = computed<CSSProperties>(() => {
+  if (props.layoutMode !== 'layout') return { inset: '0' }
+  return preview.value.layoutPreview.mapFrame.style as CSSProperties
+})
+
+function labelOffset(position: string, fontSize: number) {
+  const distance = Math.max(12, fontSize * 0.85)
+  const offsets: Record<string, [number, number]> = {
+    top_left: [-distance, -distance],
+    top: [0, -distance],
+    top_right: [distance, -distance],
+    right: [distance, 0],
+    bottom_right: [distance, distance],
+    bottom: [0, distance],
+    bottom_left: [-distance, distance],
+    left: [-distance, 0]
+  }
+  return offsets[position] || offsets.top_right
+}
+
+function stationImageStyle(symbol: Record<string, unknown>) {
+  const color = String(symbol.color || '#375bff')
+  const size = Math.max(5, Number(symbol.size_pt || 16) * 0.45)
+  const rotation = (Number(symbol.rotation_deg || 0) * Math.PI) / 180
+  const stroke = new Stroke({ color: '#ffffff', width: 2 })
+  const fill = new Fill({ color })
+
+  if (symbol.shape === 'triangle') {
+    return new RegularShape({ points: 3, radius: size, rotation, fill, stroke })
+  }
+  if (symbol.shape === 'square') {
+    return new RegularShape({ points: 4, radius: size, angle: Math.PI / 4 + rotation, fill, stroke })
+  }
+  if (symbol.shape === 'diamond') {
+    return new RegularShape({ points: 4, radius: size, angle: rotation, fill, stroke })
+  }
+  if (symbol.shape === 'rectangle') {
+    return new RegularShape({ points: 4, radius: size * 1.15, radius2: size * 0.72, angle: Math.PI / 4 + rotation, fill, stroke })
+  }
+  return new CircleStyle({ radius: size, fill, stroke })
+}
+
+function stationStyle(feature: FeatureLike) {
+  const symbol = (feature.get('symbol') || {}) as Record<string, unknown>
+  const label = (feature.get('text') || {}) as Record<string, unknown>
+  const fontSize = Number(label.font_size_pt || 14)
+  const [offsetX, offsetY] = labelOffset(String(label.position || 'top_right'), fontSize)
+
+  return new Style({
+    image: stationImageStyle(symbol),
+    text:
+      label.enabled === false
+        ? undefined
+        : new Text({
+            text: String(feature.get('label') || ''),
+            font: `700 ${fontSize}px Arial, sans-serif`,
+            fill: new Fill({ color: String(label.color || '#111827') }),
+            stroke: new Stroke({ color: 'rgba(255,255,255,0.92)', width: 3 }),
+            offsetX,
+            offsetY
+          })
+  })
+}
 
 function syncSources() {
   basinSource.clear(true)
@@ -159,42 +218,66 @@ watch(
   },
   { deep: true }
 )
+
+watch(
+  () => [props.layoutMode, preview.value.layoutPreview.mapFrame.style],
+  () => {
+    requestAnimationFrame(() => map?.updateSize())
+  },
+  { deep: true }
+)
 </script>
 
 <template>
   <section class="workspace-preview">
-    <button class="preview-badge" type="button">
-      <span class="preview-badge__icon">◎</span>
-      <span>地图预览</span>
-    </button>
-
     <div class="workspace-preview__canvas-wrap">
       <div class="workspace-preview__fallback"></div>
-      <div ref="mapElement" class="workspace-preview__canvas"></div>
-      <svg class="preview-illustration" viewBox="0 0 1000 680" aria-hidden="true">
-        <path
-          d="M365 78 C445 62 514 86 573 138 C613 173 652 184 715 192 C806 204 842 274 822 348 C806 404 760 431 738 484 C712 547 650 582 570 586 C503 590 456 618 390 602 C324 586 297 540 247 520 C180 492 156 423 172 358 C184 302 170 250 199 198 C229 143 290 93 365 78 Z"
-          fill="rgba(188, 214, 177, 0.42)"
-          stroke="#2f75db"
-          stroke-width="4"
-        />
-        <path d="M475 94 C470 182 484 244 516 318 C540 374 548 450 544 586" fill="none" stroke="#57a4f5" stroke-width="7" stroke-linecap="round" />
-        <path d="M369 150 C412 218 458 280 522 336" fill="none" stroke="#5fb4ff" stroke-width="4" stroke-linecap="round" />
-        <path d="M642 176 C610 244 562 300 522 336" fill="none" stroke="#5fb4ff" stroke-width="4" stroke-linecap="round" />
-        <path d="M284 310 C364 332 425 340 522 336" fill="none" stroke="#5fb4ff" stroke-width="4" stroke-linecap="round" />
-        <path d="M713 296 C646 318 592 326 522 336" fill="none" stroke="#5fb4ff" stroke-width="4" stroke-linecap="round" />
-        <path d="M304 452 C394 424 466 390 522 336" fill="none" stroke="#5fb4ff" stroke-width="4" stroke-linecap="round" />
-        <path d="M668 448 C606 410 560 378 522 336" fill="none" stroke="#5fb4ff" stroke-width="4" stroke-linecap="round" />
-        <circle cx="446" cy="238" r="9" fill="#375bff" stroke="#fff" stroke-width="3" />
-        <circle cx="517" cy="332" r="9" fill="#375bff" stroke="#fff" stroke-width="3" />
-        <circle cx="409" cy="420" r="9" fill="#375bff" stroke="#fff" stroke-width="3" />
-        <circle cx="562" cy="454" r="9" fill="#375bff" stroke="#fff" stroke-width="3" />
-        <circle cx="488" cy="546" r="9" fill="#375bff" stroke="#fff" stroke-width="3" />
-        <polygon points="430,132 444,158 416,158" fill="#7fa43a" stroke="#fff" stroke-width="2" />
-        <polygon points="640,176 654,202 626,202" fill="#7fa43a" stroke="#fff" stroke-width="2" />
-        <polygon points="716,328 730,354 702,354" fill="#7fa43a" stroke="#fff" stroke-width="2" />
-        <polygon points="308,304 322,330 294,330" fill="#7fa43a" stroke="#fff" stroke-width="2" />
-      </svg>
+      <div class="workspace-preview__paper" :class="{ 'workspace-preview__paper--layout': layoutMode === 'layout' }" :style="preview.layoutPreview.paperStyle">
+        <div class="layout-map-frame" :style="mapFrameStyle">
+          <div ref="mapElement" class="workspace-preview__canvas"></div>
+        </div>
+
+        <template v-if="layoutMode === 'layout'">
+          <div
+            v-if="preview.layoutPreview.title"
+            class="layout-title"
+            :class="{ 'layout-element--background': preview.layoutPreview.title.background }"
+            :style="{ ...preview.layoutPreview.title.style, fontSize: `${preview.layoutPreview.title.fontSizePx}px` }"
+          >
+            {{ preview.layoutPreview.title.text }}
+          </div>
+
+          <div
+            v-if="preview.layoutPreview.legend"
+            class="layout-legend"
+            :class="{ 'layout-element--background': preview.layoutPreview.legend.background }"
+            :style="preview.layoutPreview.legend.style"
+          >
+            <strong>图例</strong>
+            <div
+              v-for="row in preview.layoutPreview.legend.rows"
+              :key="`${row.sourceType}-${row.label}`"
+              class="layout-legend__row"
+              :style="{ gap: `${preview.layoutPreview.legend.rowGapPx}px` }"
+            >
+              <span class="layout-legend__patch" :data-kind="row.sourceType" :style="preview.layoutPreview.legend.patchStyle"></span>
+              <span>{{ row.label }}</span>
+            </div>
+          </div>
+
+          <div v-if="preview.layoutPreview.scaleBar" class="layout-scale-bar" :style="preview.layoutPreview.scaleBar.style">
+            <span></span>
+            <small>比例尺</small>
+          </div>
+
+          <div v-if="preview.layoutPreview.northArrow" class="layout-north-arrow" :style="preview.layoutPreview.northArrow.style">
+            <span>N</span>
+            <svg viewBox="0 0 24 42" aria-hidden="true">
+              <path d="M12 1 22 40 12 32 2 40Z" fill="currentColor" />
+            </svg>
+          </div>
+        </template>
+      </div>
 
       <div class="map-toolbar">
         <button type="button" @click="zoomBy(1)">+</button>
@@ -205,9 +288,9 @@ watch(
         <button type="button">▤</button>
       </div>
 
-      <div class="map-north">N</div>
+      <div v-if="layoutMode !== 'layout'" class="map-north">N</div>
 
-      <div class="map-legend">
+      <div v-if="layoutMode !== 'layout'" class="map-legend">
         <strong>图例</strong>
         <div class="legend-row">
           <span class="legend-line legend-line--basin"></span>
@@ -227,7 +310,7 @@ watch(
         </div>
       </div>
 
-      <div class="map-statusbar">
+      <div v-if="layoutMode !== 'layout'" class="map-statusbar">
         <span>经度 112.6234° E</span>
         <span>纬度 28.5671° N</span>
         <span>比例尺 1:250,000</span>
@@ -241,28 +324,6 @@ watch(
   position: relative;
   height: 100%;
   min-height: 0;
-}
-
-.preview-badge {
-  position: absolute;
-  top: -46px;
-  right: 22px;
-  z-index: 4;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 42px;
-  padding: 0 18px;
-  border: 1px solid rgba(130, 255, 240, 0.22);
-  border-radius: 10px;
-  background: rgba(13, 45, 68, 0.86);
-  color: #dffcff;
-  cursor: default;
-  font-weight: 700;
-}
-
-.preview-badge__icon {
-  color: #82fff0;
 }
 
 .workspace-preview__canvas-wrap {
@@ -293,18 +354,34 @@ watch(
     );
 }
 
+.workspace-preview__paper {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.workspace-preview__paper--layout {
+  inset: 24px;
+  margin: auto;
+  border: 1px solid rgba(21, 48, 74, 0.2);
+  background: #f6f1e8;
+  box-shadow: 0 22px 64px rgba(17, 31, 47, 0.24);
+}
+
+.layout-map-frame {
+  position: absolute;
+  overflow: hidden;
+  background: #eaf0ec;
+}
+
+.workspace-preview__paper--layout .layout-map-frame {
+  border: 2px solid rgba(16, 39, 64, 0.72);
+  box-shadow: 0 10px 28px rgba(21, 48, 74, 0.16);
+}
+
 .workspace-preview__canvas {
   position: absolute;
   inset: 0;
-}
-
-.preview-illustration {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
 }
 
 .workspace-preview :deep(.ol-viewport) {
@@ -317,6 +394,120 @@ watch(
 .map-statusbar {
   position: absolute;
   z-index: 3;
+}
+
+.layout-title,
+.layout-legend,
+.layout-scale-bar,
+.layout-north-arrow {
+  position: absolute;
+  z-index: 4;
+  box-sizing: border-box;
+  color: #172536;
+}
+
+.layout-element--background {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.layout-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  overflow: hidden;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 800;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.layout-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  padding: 7px;
+  border: 1px solid rgba(23, 37, 54, 0.18);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.layout-legend strong {
+  margin-bottom: 2px;
+  font-size: 13px;
+}
+
+.layout-legend__row {
+  display: inline-flex;
+  align-items: center;
+  min-height: 14px;
+  white-space: nowrap;
+}
+
+.layout-legend__patch {
+  display: inline-block;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border: 1px solid rgba(23, 37, 54, 0.55);
+  background: rgba(215, 236, 242, 0.82);
+}
+
+.layout-legend__patch[data-kind='river'] {
+  height: 3px !important;
+  border: 0;
+  border-radius: 999px;
+  background: #2f80ed;
+}
+
+.layout-legend__patch[data-kind='station_layer'],
+.layout-legend__patch[data-kind='station_group'] {
+  width: 10px !important;
+  height: 10px !important;
+  border-radius: 50%;
+  background: #00a651;
+}
+
+.layout-scale-bar {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 2px;
+  font-size: 10px;
+}
+
+.layout-scale-bar span {
+  display: block;
+  height: 8px;
+  border: 2px solid #172536;
+  border-top: 0;
+}
+
+.layout-scale-bar small {
+  color: #172536;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.layout-north-arrow {
+  display: grid;
+  place-items: center;
+  color: #172536;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 900;
+}
+
+.layout-north-arrow span {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.layout-north-arrow svg {
+  width: 100%;
+  height: calc(100% - 12px);
+  min-height: 18px;
 }
 
 .map-toolbar {
@@ -425,7 +616,6 @@ watch(
 @media (max-width: 860px) {
   .workspace-preview {
     min-height: auto;
-    padding-top: 48px;
   }
 
   .workspace-preview__canvas-wrap {
