@@ -528,6 +528,124 @@ python -m pytest tests -q
 
 真实 ArcPy 出图需要用 `propy.bat` 启动后端，然后用 Apifox 请求 `POST /api/render`。
 
+## 多后端端口部署说明
+
+当前项目同时包含“流域出图”“流域提取”“生成流域边界”三个功能。它们虽然共用同一套 Flask 项目代码，但不建议全部放在同一个 Python 环境里运行，因为依赖会冲突。
+
+推荐端口和环境如下：
+
+| 功能 | 页面 | API 前缀 | 端口 | 推荐 Python 环境 | 原因 |
+| --- | --- | --- | --- | --- | --- |
+| 流域出图 | `/map-output` | `/api/render`, `/api/uploads`, `/api/render-options` | `5000` | ArcGIS Pro Python / `propy.bat` | 需要 ArcPy |
+| 流域提取 | `/watershed-extract` | `/api/watershed` | `5001` | `D:\python3.9.5\python.exe` | 需要 `pysheds` 等普通 GIS 包 |
+| 生成流域边界 | `/watershed-boundary-generator` | `/api/watershed-boundary` | `5002` | `D:\python3.9.5\python.exe` | 需要 `rasterio`, `shapely`, `pysheds`, `geopandas` |
+
+这次排查发现：ArcGIS Pro Python 里有 Flask 和 ArcPy，但没有 `rasterio/shapely/pysheds/geopandas`；而 `D:\python3.9.5` 里这些普通 GIS 包是完整的。所以流域提取和生成流域边界不要放到 `5000` 的 ArcGIS Python 进程里跑。
+
+### 启动顺序
+
+先启动流域出图后端，也就是 ArcPy 后端：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study
+& "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" backend\run.py
+```
+
+再启动流域提取后端：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study
+$env:FLASK_PORT="5001"
+$env:FLASK_HOST="127.0.0.1"
+& "D:\python3.9.5\python.exe" backend\run.py
+```
+
+再启动生成流域边界后端：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study
+$env:FLASK_PORT="5002"
+$env:FLASK_HOST="127.0.0.1"
+& "D:\python3.9.5\python.exe" backend\run.py
+```
+
+最后启动前端：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study\frontend
+npm run dev
+```
+
+如果需要后台静默启动，可以使用：
+
+```powershell
+$env:FLASK_PORT="5001"
+$env:FLASK_HOST="127.0.0.1"
+Start-Process -FilePath "D:\python3.9.5\python.exe" -ArgumentList "backend\run.py" -WorkingDirectory "D:\work\2026\code\life\gis_flask_study" -WindowStyle Hidden
+
+$env:FLASK_PORT="5002"
+$env:FLASK_HOST="127.0.0.1"
+Start-Process -FilePath "D:\python3.9.5\python.exe" -ArgumentList "backend\run.py" -WorkingDirectory "D:\work\2026\code\life\gis_flask_study" -WindowStyle Hidden
+```
+
+### Vite 代理顺序
+
+`frontend/vite.config.ts` 里的代理顺序很重要。`/api/watershed-boundary` 必须写在 `/api/watershed` 前面，否则 `/api/watershed-boundary/generate` 会被 `/api/watershed` 前缀误匹配，转发到 `5001`。
+
+推荐配置如下：
+
+```ts
+proxy: {
+  '/api/watershed-boundary': {
+    target: 'http://localhost:5002',
+    changeOrigin: true
+  },
+  '/api/watershed': {
+    target: 'http://localhost:5001',
+    changeOrigin: true
+  },
+  '/api': {
+    target: 'http://localhost:5000',
+    changeOrigin: true
+  }
+}
+```
+
+修改 `vite.config.ts` 后必须重启 `npm run dev`，只刷新浏览器不会更新代理规则。
+
+### 默认 DEM 路径
+
+当前默认 DEM 路径统一为：
+
+```text
+D:\work\2026\code\data\data\dem\dem.tif
+```
+
+旧路径 `D:\work\data\data\dem\dem.tif` 在当前电脑上不存在，页面或后端如果仍使用旧路径，会出现 `DEM file does not exist` 或接口失败。
+
+### 快速排查
+
+检查端口是否都启动：
+
+```powershell
+netstat -ano | Select-String -Pattern ':5000|:5001|:5002|:5173'
+```
+
+检查健康接口：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5000/api/health
+Invoke-RestMethod http://127.0.0.1:5001/api/health
+Invoke-RestMethod http://127.0.0.1:5002/api/health
+```
+
+常见问题：
+
+- `/watershed-extract` 提示“后端服务不可用”：通常是 `5001` 没启动。
+- `/watershed-boundary-generator` 提示“后端服务不可用”：先检查 `5002` 是否启动，再检查 Vite 代理是否已重启。
+- 出现 `No module named 'rasterio'`：说明边界生成接口跑到了 ArcGIS Python 环境，应改用 `D:\python3.9.5\python.exe` 启动 `5002`。
+- 出现 `No module named 'pysheds'`：说明流域提取接口跑到了错误环境，应改用 `D:\python3.9.5\python.exe` 启动 `5001`。
+
 ## tests 目录说明
 
 `tests/` 主要用来保护两类核心行为：

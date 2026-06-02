@@ -37,7 +37,7 @@ interface WorkflowState {
   breakPoints: BreakPoint[]
 }
 
-const DEFAULT_DEM_PATH = 'D:\\work\\data\\data\\dem\\dem.tif'
+const DEFAULT_DEM_PATH = 'D:\\work\\2026\\code\\data\\data\\dem\\dem.tif'
 
 const steps: Array<{ id: StepId; title: string; endpoint: string; description: string }> = [
   { id: 1, title: '累计流阈值设置', endpoint: '/api/watershed/acc_threshold', description: '上传边界并计算默认面积阈值' },

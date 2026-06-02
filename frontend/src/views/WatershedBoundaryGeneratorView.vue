@@ -16,7 +16,7 @@ import type {
   WatershedBoundaryPoint
 } from '@/types'
 
-const DEFAULT_DEM_PATH = 'D:\\work\\data\\data\\dem\\dem.tif'
+const DEFAULT_DEM_PATH = 'D:\\work\\2026\\code\\data\\data\\dem\\dem.tif'
 const DEFAULT_SNAP_THRESHOLD = 2000
 
 const state = reactive({

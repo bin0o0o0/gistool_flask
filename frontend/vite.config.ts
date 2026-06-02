@@ -13,6 +13,10 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     proxy: {
+      '/api/watershed-boundary': {
+        target: 'http://localhost:5002',
+        changeOrigin: true
+      },
       '/api/watershed': {
         target: 'http://localhost:5001',
         changeOrigin: true
