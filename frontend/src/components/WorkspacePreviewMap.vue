@@ -41,17 +41,12 @@ const stationSource = new VectorSource<Feature<Geometry>>()
 
 const basinLayer = new VectorLayer({
   source: basinSource,
-  style: new Style({
-    stroke: new Stroke({ color: '#2f75db', width: 2.4 }),
-    fill: new Fill({ color: 'rgba(183, 220, 181, 0.28)' })
-  })
+  style: basinStyle
 })
 
 const riverLayer = new VectorLayer({
   source: riverSource,
-  style: new Style({
-    stroke: new Stroke({ color: '#57a4f5', width: 1.8 })
-  })
+  style: riverStyle
 })
 
 const stationLayer = new VectorLayer({
@@ -79,6 +74,42 @@ function labelOffset(position: string, fontSize: number) {
     left: [-distance, 0]
   }
   return offsets[position] || offsets.top_right
+}
+
+function colorWithOpacity(color: string, opacity: number) {
+  const normalized = color.trim()
+  const alpha = Math.max(0, Math.min(1, Number.isFinite(opacity) ? opacity : 0.35))
+  const hex = normalized.startsWith('#') ? normalized.slice(1) : normalized
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    const red = Number.parseInt(hex.slice(0, 2), 16)
+    const green = Number.parseInt(hex.slice(2, 4), 16)
+    const blue = Number.parseInt(hex.slice(4, 6), 16)
+    return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+  }
+  return normalized
+}
+
+function basinStyle(feature: FeatureLike) {
+  const style = (feature.get('previewStyle') || {}) as Record<string, unknown>
+  const boundaryColor = String(style.boundaryColor || '#2f75db')
+  const fillColor = String(style.fillColor || '#b7dcb5')
+  const fillOpacity = Number(style.fillOpacity ?? 0.28)
+  const boundaryWidth = Math.max(0.5, Number(style.boundaryWidth || 2.4))
+
+  return new Style({
+    stroke: new Stroke({ color: boundaryColor, width: boundaryWidth }),
+    fill: new Fill({ color: colorWithOpacity(fillColor, fillOpacity) })
+  })
+}
+
+function riverStyle(feature: FeatureLike) {
+  const style = (feature.get('previewStyle') || {}) as Record<string, unknown>
+  const color = String(style.color || '#57a4f5')
+  const width = Math.max(0.5, Number(style.width || 1.8))
+
+  return new Style({
+    stroke: new Stroke({ color, width })
+  })
 }
 
 function stationImageStyle(symbol: Record<string, unknown>) {

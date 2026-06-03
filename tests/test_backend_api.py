@@ -742,6 +742,32 @@ def test_render_endpoint_renders_directly_to_requested_output_dir(tmp_path):
     assert renderer.calls[0]["job_config"]["inputs"]["station_layers"][1]["symbol"]["preset"] == "triangle_red"
 
 
+def test_render_endpoint_allows_empty_station_layers(tmp_path):
+    """Station layers are optional; basin and river data alone should still render."""
+    from app import create_app
+
+    renderer = FakeRenderer()
+    template_project = tmp_path / "gistool_test.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    app = create_app(
+        {
+            "TESTING": True,
+            "OUTPUT_FOLDER": str(tmp_path / "outputs"),
+            "ARCPY_TEMPLATE_PROJECT": str(template_project),
+            "RENDERER": renderer,
+        }
+    )
+
+    payload = _valid_render_payload(tmp_path)
+    payload["inputs"]["station_layers"] = []
+    response = app.test_client().post("/api/render", json=payload)
+
+    assert response.status_code == 200
+    assert renderer.calls[0]["job_config"]["inputs"]["station_layers"] == []
+    body = response.get_json()
+    assert body["data"]["feature_counts"]["station_layers"] == 0
+
+
 def test_render_file_endpoint_serves_output_png_under_output_folder(tmp_path):
     """浏览器前端应能通过只读接口预览 OUTPUT_FOLDER 下的 map.png。"""
     from app import create_app

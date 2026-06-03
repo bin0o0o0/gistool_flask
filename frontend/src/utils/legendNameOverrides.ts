@@ -26,15 +26,7 @@ function stationLegendSources(
 ) {
   const baseName = layer.layer_name || `StationLayer${layerIndex + 1}`
   if (!layer.points.length) {
-    const source_key = `station-layer-${layerIndex + 1}`
-    return [
-      {
-        source_type: 'station_layer' as const,
-        source_key,
-        default_name: baseName,
-        legend_name: preservedLegendName(existingOverrides, source_key, baseName)
-      }
-    ]
+    return []
   }
 
   const groups = new Map<string, number>()

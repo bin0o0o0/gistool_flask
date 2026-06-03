@@ -86,6 +86,7 @@ export interface BasinLayerForm {
   upload?: UploadResult
   name: string
   path: string
+  preview?: GeoJsonFeatureCollection
   style: {
     boundary_color: string
     boundary_width_pt: number
@@ -99,6 +100,7 @@ export interface RiverLayerForm {
   upload?: UploadResult
   name: string
   path: string
+  preview?: GeoJsonFeatureCollection
   style: {
     color: string
     width_pt: number

@@ -4,6 +4,11 @@ import { ElMessage } from 'element-plus'
 import { Download, MagicStick, UploadFilled, View } from '@element-plus/icons-vue'
 
 import { collectLegendNameOverrides } from '@/utils/legendNameOverrides'
+import {
+  basinBoundaryColorOptions,
+  basinFillColorOptions,
+  riverColorOptions
+} from '@/utils/mapOutputStyleOptions'
 import { nearestBoxCornerInMapFrame, placeBoxInMapFrame, type LayoutCorner } from '@/utils/layoutPosition'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type {
@@ -221,7 +226,7 @@ function onStepBack(step: 'data' | 'style' | 'stations-style' | 'stations-attrs'
       </div>
 
       <div class="step-body step-body--scroll">
-        <div class="upload-card">
+        <div class="upload-card upload-card--template">
           <div>
             <label class="field-label">模板文件（APRX）</label>
             <p>上传 ArcGIS Pro 专题图模板工程。</p>
@@ -301,32 +306,81 @@ function onStepBack(step: 'data' | 'style' | 'stations-style' | 'stations-attrs'
         <div v-for="layer in store.form.inputs.basin_boundaries" :key="layer.id" class="style-block">
           <div class="style-block__head">
             <input v-model="layer.name" class="ghost-input" @input="store.markStepConfigured('style')" />
-            <button class="more-button" type="button" @click="store.removeBasinLayer(layer.id)">...</button>
           </div>
 
-          <div class="style-row">
+          <div class="style-row style-row--layer">
             <span class="style-row__name">边界颜色</span>
-            <el-input v-model="layer.style.boundary_color" class="row-input row-input--color" @change="store.markStepConfigured('style')" />
-            <el-input-number v-model="layer.style.boundary_width_pt" :min="0.1" :step="0.1" controls-position="right" class="row-input row-input--num" @change="store.markStepConfigured('style')" />
+            <div class="swatch-grid" role="radiogroup" aria-label="边界颜色">
+              <button
+                v-for="option in basinBoundaryColorOptions"
+                :key="option.value"
+                class="swatch-button"
+                :class="{ 'swatch-button--active': layer.style.boundary_color === option.value }"
+                type="button"
+                role="radio"
+                :aria-checked="layer.style.boundary_color === option.value"
+                :title="option.label"
+                @click="layer.style.boundary_color = option.value; store.markStepConfigured('style')"
+              >
+                <span :style="{ backgroundColor: option.value }"></span>
+              </button>
+            </div>
+            <label class="numeric-field">
+              <span>线宽 pt</span>
+              <el-input-number v-model="layer.style.boundary_width_pt" :min="0.1" :step="0.1" controls-position="right" class="row-input row-input--num" @change="store.markStepConfigured('style')" />
+            </label>
           </div>
 
-          <div class="style-row">
+          <div class="style-row style-row--layer">
             <span class="style-row__name">填充样式</span>
-            <el-input v-model="layer.style.fill_color" class="row-input row-input--color" @change="store.markStepConfigured('style')" />
-            <el-input-number v-model="layer.style.fill_opacity" :min="0" :max="1" :step="0.05" controls-position="right" class="row-input row-input--num" @change="store.markStepConfigured('style')" />
+            <div class="swatch-grid" role="radiogroup" aria-label="填充颜色">
+              <button
+                v-for="option in basinFillColorOptions"
+                :key="option.value"
+                class="swatch-button"
+                :class="{ 'swatch-button--active': layer.style.fill_color === option.value }"
+                type="button"
+                role="radio"
+                :aria-checked="layer.style.fill_color === option.value"
+                :title="option.label"
+                @click="layer.style.fill_color = option.value; store.markStepConfigured('style')"
+              >
+                <span :style="{ backgroundColor: option.value }"></span>
+              </button>
+            </div>
+            <label class="numeric-field">
+              <span>透明度</span>
+              <el-input-number v-model="layer.style.fill_opacity" :min="0" :max="1" :step="0.05" controls-position="right" class="row-input row-input--num" @change="store.markStepConfigured('style')" />
+            </label>
           </div>
         </div>
 
         <div v-for="layer in store.form.inputs.river_networks" :key="layer.id" class="style-block">
           <div class="style-block__head">
             <input v-model="layer.name" class="ghost-input" @input="store.markStepConfigured('style')" />
-            <button class="more-button" type="button" @click="store.removeRiverLayer(layer.id)">...</button>
           </div>
 
-          <div class="style-row">
+          <div class="style-row style-row--layer">
             <span class="style-row__name">河流样式</span>
-            <el-input v-model="layer.style.color" class="row-input row-input--color" @change="store.markStepConfigured('style')" />
-            <el-input-number v-model="layer.style.width_pt" :min="0.1" :step="0.1" controls-position="right" class="row-input row-input--num" @change="store.markStepConfigured('style')" />
+            <div class="swatch-grid" role="radiogroup" aria-label="河流颜色">
+              <button
+                v-for="option in riverColorOptions"
+                :key="option.value"
+                class="swatch-button"
+                :class="{ 'swatch-button--active': layer.style.color === option.value }"
+                type="button"
+                role="radio"
+                :aria-checked="layer.style.color === option.value"
+                :title="option.label"
+                @click="layer.style.color = option.value; store.markStepConfigured('style')"
+              >
+                <span :style="{ backgroundColor: option.value }"></span>
+              </button>
+            </div>
+            <label class="numeric-field">
+              <span>线宽 pt</span>
+              <el-input-number v-model="layer.style.width_pt" :min="0.1" :step="0.1" controls-position="right" class="row-input row-input--num" @change="store.markStepConfigured('style')" />
+            </label>
           </div>
         </div>
 
@@ -646,6 +700,17 @@ function onStepBack(step: 'data' | 'style' | 'stations-style' | 'stations-attrs'
               <el-input v-model="store.form.map_title" @change="markOutput" />
             </label>
             <label>
+              <span>标题框宽度</span>
+              <el-input-number
+                v-model="store.form.layout.elements.title.width"
+                :min="1"
+                :step="1"
+                :precision="2"
+                controls-position="right"
+                @change="markOutput"
+              />
+            </label>
+            <label>
               <span>输出目录</span>
               <el-input v-model="store.form.output_dir" @change="markOutput" />
             </label>
@@ -886,6 +951,14 @@ function onStepBack(step: 'data' | 'style' | 'stations-style' | 'stations-attrs'
   box-sizing: border-box;
 }
 
+.upload-card--template {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 128px;
+  max-height: 170px;
+  padding: 12px 14px;
+}
+
 .field-label,
 .preset-block > span,
 .export-row > span,
@@ -1038,6 +1111,10 @@ function onStepBack(step: 'data' | 'style' | 'stations-style' | 'stations-attrs'
   align-items: center;
 }
 
+.style-row--layer {
+  grid-template-columns: minmax(84px, 0.7fr) minmax(190px, 1.2fr) minmax(104px, 0.75fr);
+}
+
 .style-row--station {
   grid-template-columns: 1fr minmax(90px, 1fr) minmax(88px, 0.8fr);
 }
@@ -1054,6 +1131,57 @@ function onStepBack(step: 'data' | 'style' | 'stations-style' | 'stations-attrs'
 
 .row-input {
   width: 100%;
+}
+
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 32px));
+  gap: 7px;
+  align-items: center;
+}
+
+.swatch-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(168, 247, 255, 0.2);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.swatch-button span {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.16);
+}
+
+.swatch-button:hover,
+.swatch-button--active {
+  border-color: rgba(146, 245, 255, 0.9);
+  box-shadow: 0 0 0 2px rgba(45, 205, 255, 0.22);
+  transform: translateY(-1px);
+}
+
+.numeric-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.numeric-field > span {
+  color: #aebfca;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .row-input--color :deep(.el-input__wrapper),
@@ -1580,7 +1708,9 @@ function onStepBack(step: 'data' | 'style' | 'stations-style' | 'stations-attrs'
 }
 
 @media (max-width: 860px) {
+  .upload-card--template,
   .style-row,
+  .style-row--layer,
   .style-row--station,
   .form-grid,
   .form-grid--layout,

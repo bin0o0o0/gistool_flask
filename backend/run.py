@@ -1,13 +1,12 @@
-"""Flask 后端启动入口。
+"""Fixed-mode Flask backend entrypoint.
 
-这个文件故意保持很薄：真正的应用创建逻辑在 `app/__init__.py`
-的 `create_app()` 里。这样做有两个好处：
+Development uses three separate backend services:
+- render: port 5000, must be started by ArcGIS Pro Python / propy.bat.
+- watershed: port 5001, normal GIS Python environment.
+- watershed-boundary: port 5002, normal GIS Python environment.
 
-1. Apifox / 浏览器调试时，可以直接运行这个文件启动服务。
-2. 单元测试时，可以绕过真实端口，直接导入 `create_app()` 创建测试 app。
-
-注意：本项目的方案 A 是“Flask 进程内直接调用 ArcPy”，所以生产调试时
-不要用普通 Python 启动，而要用 ArcGIS Pro 自带的 `propy.bat`。
+Set GIS_TOOL_SERVICE to choose the service. If it is omitted, this entrypoint
+defaults to render, because port 5000 is the safest default for map output.
 """
 
 from __future__ import annotations
@@ -15,18 +14,36 @@ from __future__ import annotations
 import os
 
 from app import create_app
+from app.core.service_mode import SERVICE_MODE_RENDER, normalize_service_mode, service_port
 
 
-# 创建 Flask app 实例。Flask 的命令行工具或 WSGI 服务器也可以复用这个变量。
-app = create_app()
+app = create_app({"SERVICE_MODE": os.getenv("GIS_TOOL_SERVICE", "all")})
+
+
+def _service_mode_from_env() -> str:
+    return normalize_service_mode(os.getenv("GIS_TOOL_SERVICE", SERVICE_MODE_RENDER))
+
+
+def _ensure_render_runtime(mode: str) -> None:
+    if mode != SERVICE_MODE_RENDER:
+        return
+    try:
+        import arcpy  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            "GIS_TOOL_SERVICE=render must run on fixed port 5000 with ArcGIS Pro Python / propy.bat. "
+            "Do not start the map-output backend with ordinary python.exe."
+        ) from exc
 
 
 if __name__ == "__main__":
-    # 这三个环境变量用于临时切换监听地址、端口和 debug 模式。
-    # 例如：
-    #   $env:FLASK_PORT="5050"
-    #   propy.bat backend\run.py
+    service_mode = _service_mode_from_env()
+    _ensure_render_runtime(service_mode)
+
+    app = create_app({"SERVICE_MODE": service_mode})
     host = os.getenv("FLASK_HOST", "127.0.0.1")
-    port = int(os.getenv("FLASK_PORT", "5000"))
+    port = service_port(service_mode)
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+
+    print(f"Starting {service_mode} backend on http://{host}:{port}")
     app.run(host=host, port=port, debug=debug)

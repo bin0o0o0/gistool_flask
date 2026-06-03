@@ -5,9 +5,11 @@ import readXlsxFile from 'read-excel-file/browser'
 import { getApiErrorMessage } from '@/api/client'
 import { renderApi } from '@/api/render'
 import { uploadsApi } from '@/api/uploads'
+import { watershedApi } from '@/api/watershed'
 import { buildRenderPayload } from '@/utils/renderPayload'
 import type {
   BasinLayerForm,
+  GeoJsonFeatureCollection,
   RenderOptions,
   RenderResult,
   RiverLayerForm,
@@ -57,12 +59,13 @@ function defaultStationLayer(index = 1): StationLayerForm {
 const basinFillPalette = ['#e6f0d4', '#f6d7a7', '#d7ecf2', '#eadcf8', '#f4c6b8', '#d8ead8']
 const riverColorPalette = ['#2f80ed', '#00a6c8', '#4f8a8b', '#1f5f99', '#6aaed6']
 
-function defaultBasinLayer(upload: UploadResult, index: number): BasinLayerForm {
+function defaultBasinLayer(upload: UploadResult, index: number, preview?: GeoJsonFeatureCollection): BasinLayerForm {
   return {
     id: crypto.randomUUID(),
     upload,
     name: `Basin ${index}`,
     path: upload.path,
+    preview,
     style: {
       boundary_color: '#222222',
       boundary_width_pt: 1.2,
@@ -72,12 +75,13 @@ function defaultBasinLayer(upload: UploadResult, index: number): BasinLayerForm 
   }
 }
 
-function defaultRiverLayer(upload: UploadResult, index: number): RiverLayerForm {
+function defaultRiverLayer(upload: UploadResult, index: number, preview?: GeoJsonFeatureCollection): RiverLayerForm {
   return {
     id: crypto.randomUUID(),
     upload,
     name: `River ${index}`,
     path: upload.path,
+    preview,
     style: {
       color: riverColorPalette[(index - 1) % riverColorPalette.length],
       width_pt: 2.5
@@ -245,8 +249,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const latestResult = results[results.length - 1]
       uploads.value[kind].result = latestResult
       if (kind === 'template_project') form.value.template_project = latestResult.path
-      if (kind === 'basin_boundary') results.forEach(addBasinLayer)
-      if (kind === 'river_network') results.forEach(addRiverLayer)
+      if (kind === 'basin_boundary') {
+        for (const result of results) {
+          addBasinLayer(result, await loadVectorPreview(result.path, 'polygon'))
+        }
+      }
+      if (kind === 'river_network') {
+        for (const result of results) {
+          addRiverLayer(result, await loadVectorPreview(result.path, 'line'))
+        }
+      }
     } catch (caught) {
       const message = getApiErrorMessage(caught)
       uploads.value[kind].error = message
@@ -401,14 +413,24 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     form.value.inputs.station_layers.push(defaultStationLayer(form.value.inputs.station_layers.length + 1))
   }
 
-  function addBasinLayer(upload: UploadResult) {
-    const layer = defaultBasinLayer(upload, form.value.inputs.basin_boundaries.length + 1)
+  async function loadVectorPreview(path: string, entityType: 'polygon' | 'line') {
+    try {
+      const response = await watershedApi.previewLayer({ path, entity_type: entityType })
+      if (response.data.success && response.data.layer) return response.data.layer
+    } catch {
+      // Preview is best-effort; rendering still uses the uploaded server path.
+    }
+    return undefined
+  }
+
+  function addBasinLayer(upload: UploadResult, preview?: GeoJsonFeatureCollection) {
+    const layer = defaultBasinLayer(upload, form.value.inputs.basin_boundaries.length + 1, preview)
     form.value.inputs.basin_boundaries.push(layer)
     form.value.inputs.basin_boundary = form.value.inputs.basin_boundaries[0]?.path || ''
   }
 
-  function addRiverLayer(upload: UploadResult) {
-    const layer = defaultRiverLayer(upload, form.value.inputs.river_networks.length + 1)
+  function addRiverLayer(upload: UploadResult, preview?: GeoJsonFeatureCollection) {
+    const layer = defaultRiverLayer(upload, form.value.inputs.river_networks.length + 1, preview)
     form.value.inputs.river_networks.push(layer)
     form.value.inputs.river_network = form.value.inputs.river_networks[0]?.path || ''
   }

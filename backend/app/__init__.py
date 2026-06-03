@@ -61,8 +61,26 @@ def create_app(config_overrides: dict | None = None):
         CORS(app, resources={r"/api/*": {"origins": config.frontend_url}})
 
     _register_blueprints(app)
+    _register_service_mode_guard(app)
     _register_error_handlers(app)
     return app
+
+
+def _register_service_mode_guard(app) -> None:
+    """Disable API groups that do not belong to the current fixed service mode."""
+    from flask import request
+
+    from app.core.service_mode import is_path_enabled_for_service
+    from app.utils.responses import error_response
+
+    @app.before_request
+    def restrict_service_mode():
+        if not request.path.startswith("/api/"):
+            return None
+        mode = app.extensions["app_config"].service_mode
+        if is_path_enabled_for_service(request.path, mode):
+            return None
+        return error_response(f"{request.path} is not enabled in {mode} service.", 404)
 
 
 def _register_blueprints(app) -> None:

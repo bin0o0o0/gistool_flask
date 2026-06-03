@@ -1,7 +1,9 @@
 import { collectLegendNameOverrides } from '@/utils/legendNameOverrides'
 import type {
+  BasinLayerForm,
   GeoJsonFeatureCollection,
   LayoutBoxForm,
+  RiverLayerForm,
   StationLayerForm,
   StationPointForm,
   WorkspaceForm
@@ -54,8 +56,9 @@ export interface WorkspacePreviewData {
 }
 
 const DEFAULT_CENTER: [number, number] = [105.2, 27.06]
-const LAYOUT_WIDTH_UNITS = 270
-const LAYOUT_HEIGHT_UNITS = 200
+const FALLBACK_LAYOUT_WIDTH_UNITS = 270
+const FALLBACK_LAYOUT_HEIGHT_UNITS = 200
+const MILLIMETERS_PER_INCH = 25.4
 
 export function buildWorkspacePreviewData(form: WorkspaceForm): WorkspacePreviewData {
   const stationCoordinates = collectStationCoordinates(form.inputs.station_layers)
@@ -63,12 +66,16 @@ export function buildWorkspacePreviewData(form: WorkspaceForm): WorkspacePreview
 
   const basinFeatures =
     form.inputs.basin_boundaries.length > 0
-      ? form.inputs.basin_boundaries.map((layer, index) => createBasinFeature(layer.name, center, index))
+      ? form.inputs.basin_boundaries.flatMap((layer, index) =>
+          layer.preview?.features?.length ? previewFeatures(layer.preview, layer.name, basinPreviewStyle(layer)) : [createBasinFeature(layer, center, index)]
+        )
       : []
 
   const riverFeatures =
     form.inputs.river_networks.length > 0
-      ? form.inputs.river_networks.map((layer, index) => createRiverFeature(layer.name, center, index))
+      ? form.inputs.river_networks.flatMap((layer, index) =>
+          layer.preview?.features?.length ? previewFeatures(layer.preview, layer.name, riverPreviewStyle(layer)) : [createRiverFeature(layer, center, index)]
+        )
       : []
 
   const stationFeatures = createStationFeatures(form.inputs.station_layers)
@@ -140,33 +147,77 @@ function createStationFeatures(layers: StationLayerForm[]) {
   return features
 }
 
+function previewFeatures(collection: GeoJsonFeatureCollection, layerName: string, previewStyle: Record<string, unknown>) {
+  return collection.features.map((feature) => ({
+    ...feature,
+    properties: {
+      ...(feature.properties || {}),
+      name: (feature.properties as Record<string, unknown> | undefined)?.name || layerName,
+      previewStyle
+    }
+  }))
+}
+
+function basinPreviewStyle(layer: BasinLayerForm) {
+  return {
+    boundaryColor: layer.style.boundary_color,
+    boundaryWidth: layer.style.boundary_width_pt,
+    fillColor: layer.style.fill_color,
+    fillOpacity: layer.style.fill_opacity
+  }
+}
+
+function riverPreviewStyle(layer: RiverLayerForm) {
+  return {
+    color: layer.style.color,
+    width: layer.style.width_pt
+  }
+}
+
 function percent(value: number) {
   return `${((value * 100) / 1).toFixed(2)}%`
 }
 
-function boxStyle(box: LayoutBoxForm) {
+function layoutPageUnits(form: WorkspaceForm) {
+  const dpi = Number(form.output.dpi)
+  const widthPx = Number(form.output.width_px)
+  const heightPx = Number(form.output.height_px)
+  if (dpi > 0 && widthPx > 0 && heightPx > 0) {
+    return {
+      width: (widthPx / dpi) * MILLIMETERS_PER_INCH,
+      height: (heightPx / dpi) * MILLIMETERS_PER_INCH
+    }
+  }
   return {
-    left: percent(box.x / LAYOUT_WIDTH_UNITS),
-    bottom: percent(box.y / LAYOUT_HEIGHT_UNITS),
-    width: percent(box.width / LAYOUT_WIDTH_UNITS),
-    height: percent(box.height / LAYOUT_HEIGHT_UNITS)
+    width: FALLBACK_LAYOUT_WIDTH_UNITS,
+    height: FALLBACK_LAYOUT_HEIGHT_UNITS
+  }
+}
+
+function boxStyle(box: LayoutBoxForm, pageUnits: { width: number; height: number }) {
+  return {
+    left: percent(box.x / pageUnits.width),
+    bottom: percent(box.y / pageUnits.height),
+    width: percent(box.width / pageUnits.width),
+    height: percent(box.height / pageUnits.height)
   }
 }
 
 function buildLayoutPreview(form: WorkspaceForm): WorkspaceLayoutPreview {
   const elements = form.layout.elements
   const legendStyle = form.layout.legend_style
+  const pageUnits = layoutPageUnits(form)
 
   return {
     paperStyle: {
       aspectRatio: `${form.output.width_px} / ${form.output.height_px}`
     },
     mapFrame: {
-      style: boxStyle(elements.map_frame)
+      style: boxStyle(elements.map_frame, pageUnits)
     },
     title: elements.title.enabled
       ? {
-          style: boxStyle(elements.title),
+          style: boxStyle(elements.title, pageUnits),
           text: form.map_title,
           fontSizePx: elements.title.font_size,
           background: elements.title.background
@@ -174,7 +225,7 @@ function buildLayoutPreview(form: WorkspaceForm): WorkspaceLayoutPreview {
       : null,
     legend: elements.legend.enabled
       ? {
-          style: boxStyle(elements.legend),
+          style: boxStyle(elements.legend, pageUnits),
           rows: collectLegendNameOverrides(form).map((row) => ({
             sourceType: row.source_type,
             label: row.legend_name
@@ -186,14 +237,14 @@ function buildLayoutPreview(form: WorkspaceForm): WorkspaceLayoutPreview {
           },
           rowGapPx: legendStyle.item_gap,
           background: elements.legend.background
-        }
+      }
       : null,
-    scaleBar: elements.scale_bar.enabled ? { style: boxStyle(elements.scale_bar) } : null,
-    northArrow: elements.north_arrow.enabled ? { style: boxStyle(elements.north_arrow) } : null
+    scaleBar: elements.scale_bar.enabled ? { style: boxStyle(elements.scale_bar, pageUnits) } : null,
+    northArrow: elements.north_arrow.enabled ? { style: boxStyle(elements.north_arrow, pageUnits) } : null
   }
 }
 
-function createBasinFeature(name: string, center: [number, number], index: number) {
+function createBasinFeature(layer: BasinLayerForm, center: [number, number], index: number) {
   const shift = index * 0.12
   return {
     type: 'Feature',
@@ -209,12 +260,13 @@ function createBasinFeature(name: string, center: [number, number], index: numbe
       ]]
     },
     properties: {
-      name
+      name: layer.name,
+      previewStyle: basinPreviewStyle(layer)
     }
   }
 }
 
-function createRiverFeature(name: string, center: [number, number], index: number) {
+function createRiverFeature(layer: RiverLayerForm, center: [number, number], index: number) {
   const offset = index * 0.08
   return {
     type: 'Feature',
@@ -228,7 +280,8 @@ function createRiverFeature(name: string, center: [number, number], index: numbe
       ]
     },
     properties: {
-      name
+      name: layer.name,
+      previewStyle: riverPreviewStyle(layer)
     }
   }
 }
