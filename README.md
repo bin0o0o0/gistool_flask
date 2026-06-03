@@ -207,11 +207,13 @@ ArcGIS Pro Python / propy.bat
 .\scripts\setup.ps1
 ```
 
-安装脚本固定要求 Python 3.9。默认会调用 `python3.9`，如果你的电脑没有这个命令，可以传入 Python 3.9 的完整路径：
+安装脚本需要一个能安装项目依赖的 Python 环境。当前仓库在 Python 3.9 环境下验证过，所以脚本默认会尝试调用 `python3.9`；如果你的电脑没有这个命令，或想使用其他已验证可用的 Python 环境，可以通过 `-PythonPath` 传入完整路径：
 
 ```powershell
 .\scripts\setup.ps1 -PythonPath "D:\Python39\python.exe"
 ```
+
+注意：这不是说整个项目后端必须固定使用 Python 3.9。流域出图仍然必须用 ArcGIS Pro Python / `propy.bat`，因为它需要 ArcPy；流域提取和生成流域边界只要求运行环境里装好对应的普通 GIS 依赖。
 
 如果默认 PyPI 网络慢或代理报错，可以改用镜像源：
 
@@ -537,10 +539,10 @@ python -m pytest tests -q
 | 功能 | 页面 | API 前缀 | 端口 | 推荐 Python 环境 | 原因 |
 | --- | --- | --- | --- | --- | --- |
 | 流域出图 | `/map-output` | `/api/render`, `/api/uploads`, `/api/render-options` | `5000` | ArcGIS Pro Python / `propy.bat` | 需要 ArcPy |
-| 流域提取 | `/watershed-extract` | `/api/watershed` | `5001` | `D:\python3.9.5\python.exe` | 需要 `pysheds` 等普通 GIS 包 |
-| 生成流域边界 | `/watershed-boundary-generator` | `/api/watershed-boundary` | `5002` | `D:\python3.9.5\python.exe` | 需要 `rasterio`, `shapely`, `pysheds`, `geopandas` |
+| 流域提取 | `/watershed-extract` | `/api/watershed` | `5001` | 任意已安装 `pysheds` 等依赖的 Python 环境；当前开发机示例：`D:\python3.9.5\python.exe` | 需要 `pysheds` 等普通 GIS 包 |
+| 生成流域边界 | `/watershed-boundary-generator` | `/api/watershed-boundary` | `5002` | 任意已安装 `rasterio`, `shapely`, `pysheds`, `geopandas` 的 Python 环境；当前开发机示例：`D:\python3.9.5\python.exe` | 需要 `rasterio`, `shapely`, `pysheds`, `geopandas` |
 
-这次排查发现：ArcGIS Pro Python 里有 Flask 和 ArcPy，但没有 `rasterio/shapely/pysheds/geopandas`；而 `D:\python3.9.5` 里这些普通 GIS 包是完整的。所以流域提取和生成流域边界不要放到 `5000` 的 ArcGIS Python 进程里跑。
+这次排查发现：ArcGIS Pro Python 里有 Flask 和 ArcPy，但没有 `rasterio/shapely/pysheds/geopandas`；而当前开发机的 `D:\python3.9.5` 环境里这些普通 GIS 包是完整的。所以流域提取和生成流域边界不要放到 `5000` 的 ArcGIS Python 进程里跑，但也不强制必须使用 `D:\python3.9.5`，换成其他依赖齐全的 Python 环境也可以。
 
 ### 启动顺序
 
@@ -551,7 +553,7 @@ cd D:\work\2026\code\life\gis_flask_study
 & "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" backend\run.py
 ```
 
-再启动流域提取后端：
+再启动流域提取后端。下面命令使用的是当前开发机已验证可用的 Python 示例路径；部署到其他电脑时，可以替换成任意依赖齐全的 Python 环境：
 
 ```powershell
 cd D:\work\2026\code\life\gis_flask_study
@@ -560,7 +562,7 @@ $env:FLASK_HOST="127.0.0.1"
 & "D:\python3.9.5\python.exe" backend\run.py
 ```
 
-再启动生成流域边界后端：
+再启动生成流域边界后端。同样，`D:\python3.9.5\python.exe` 只是当前开发机示例，不是硬性路径：
 
 ```powershell
 cd D:\work\2026\code\life\gis_flask_study
@@ -576,7 +578,7 @@ cd D:\work\2026\code\life\gis_flask_study\frontend
 npm run dev
 ```
 
-如果需要后台静默启动，可以使用：
+如果需要后台静默启动，可以使用。部署到其他电脑时，把 `D:\python3.9.5\python.exe` 替换成对应的 Python 路径：
 
 ```powershell
 $env:FLASK_PORT="5001"
@@ -643,8 +645,8 @@ Invoke-RestMethod http://127.0.0.1:5002/api/health
 
 - `/watershed-extract` 提示“后端服务不可用”：通常是 `5001` 没启动。
 - `/watershed-boundary-generator` 提示“后端服务不可用”：先检查 `5002` 是否启动，再检查 Vite 代理是否已重启。
-- 出现 `No module named 'rasterio'`：说明边界生成接口跑到了 ArcGIS Python 环境，应改用 `D:\python3.9.5\python.exe` 启动 `5002`。
-- 出现 `No module named 'pysheds'`：说明流域提取接口跑到了错误环境，应改用 `D:\python3.9.5\python.exe` 启动 `5001`。
+- 出现 `No module named 'rasterio'`：说明边界生成接口跑到了缺少依赖的 Python 环境，应改用已安装 `rasterio/shapely/pysheds/geopandas` 的 Python 环境启动 `5002`，例如当前开发机的 `D:\python3.9.5\python.exe`。
+- 出现 `No module named 'pysheds'`：说明流域提取接口跑到了缺少依赖的 Python 环境，应改用已安装 `pysheds` 的 Python 环境启动 `5001`，例如当前开发机的 `D:\python3.9.5\python.exe`。
 
 ## tests 目录说明
 
