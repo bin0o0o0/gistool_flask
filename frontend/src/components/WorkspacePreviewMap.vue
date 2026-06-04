@@ -6,12 +6,14 @@ import type Feature from 'ol/Feature'
 import type { FeatureLike } from 'ol/Feature'
 import type Geometry from 'ol/geom/Geometry'
 import GeoJSON from 'ol/format/GeoJSON'
+import type { EventsKey } from 'ol/events'
 import TileLayer from 'ol/layer/Tile'
 import VectorLayer from 'ol/layer/Vector'
 import OLMap from 'ol/Map'
 import View from 'ol/View'
+import { unByKey } from 'ol/Observable'
 import { createEmpty, extend as extendExtent, isEmpty } from 'ol/extent'
-import { fromLonLat } from 'ol/proj'
+import { fromLonLat, toLonLat } from 'ol/proj'
 import OSM from 'ol/source/OSM'
 import VectorSource from 'ol/source/Vector'
 import { Circle as CircleStyle, Fill, RegularShape, Stroke, Style, Text } from 'ol/style'
@@ -34,6 +36,9 @@ const resultPreviewUrl = computed(() => {
   if (!props.renderResult?.output_png || props.renderResult.status !== 'succeeded') return ''
   return renderApi.previewUrl(props.renderResult.output_png)
 })
+const pointerLon = ref(112.6234)
+const pointerLat = ref(28.5671)
+const mapScale = ref('1:250,000')
 
 const basinSource = new VectorSource<Feature<Geometry>>()
 const riverSource = new VectorSource<Feature<Geometry>>()
@@ -55,6 +60,7 @@ const stationLayer = new VectorLayer({
 })
 
 let map: OLMap | null = null
+let mapEventKeys: EventsKey[] = []
 
 const mapFrameStyle = computed<CSSProperties>(() => {
   if (props.layoutMode !== 'layout') return { inset: '0' }
@@ -214,6 +220,25 @@ function resetView() {
   fitLayers()
 }
 
+function formatScale(resolution: number | undefined) {
+  if (!Number.isFinite(resolution) || !resolution) return '1:250,000'
+  const dpi = Number(props.form.output.dpi || 150)
+  const denominator = Math.max(1, Math.round((resolution * dpi) / 0.0254))
+  return `1:${denominator.toLocaleString('en-US')}`
+}
+
+function updateScale() {
+  const resolution = map?.getView().getResolution()
+  mapScale.value = formatScale(resolution)
+}
+
+function handlePointerMove(event: { coordinate: number[] }) {
+  const [lon, lat] = toLonLat(event.coordinate)
+  pointerLon.value = Number(lon.toFixed(4))
+  pointerLat.value = Number(lat.toFixed(4))
+  updateScale()
+}
+
 onMounted(() => {
   if (!mapElement.value) return
   map = new OLMap({
@@ -232,10 +257,16 @@ onMounted(() => {
       zoom: 8
     })
   })
+  mapEventKeys = [map.on('pointermove', handlePointerMove), map.on('moveend', updateScale)]
   syncSources()
+  updateScale()
 })
 
 onBeforeUnmount(() => {
+  if (mapEventKeys.length) {
+    unByKey(mapEventKeys)
+    mapEventKeys = []
+  }
   if (map) {
     map.setTarget(undefined)
     map = null
@@ -322,30 +353,10 @@ watch(
 
       <div v-if="layoutMode !== 'layout'" class="map-north">N</div>
 
-      <div v-if="layoutMode !== 'layout'" class="map-legend">
-        <strong>图例</strong>
-        <div class="legend-row">
-          <span class="legend-line legend-line--basin"></span>
-          <span>流域边界</span>
-        </div>
-        <div class="legend-row">
-          <span class="legend-line legend-line--river"></span>
-          <span>河流（分段显示）</span>
-        </div>
-        <div class="legend-row">
-          <span class="legend-point legend-point--water"></span>
-          <span>水文站点</span>
-        </div>
-        <div class="legend-row">
-          <span class="legend-point legend-point--rain"></span>
-          <span>雨量站点</span>
-        </div>
-      </div>
-
-      <div v-if="layoutMode !== 'layout'" class="map-statusbar">
-        <span>经度 112.6234° E</span>
-        <span>纬度 28.5671° N</span>
-        <span>比例尺 1:250,000</span>
+      <div class="map-statusbar">
+        <span>经度 {{ pointerLon.toFixed(4) }}° E</span>
+        <span>纬度 {{ pointerLat.toFixed(4) }}° N</span>
+        <span>比例尺 {{ mapScale }}</span>
       </div>
     </div>
   </section>
@@ -422,7 +433,6 @@ watch(
 }
 
 .map-toolbar,
-.map-legend,
 .map-statusbar {
   position: absolute;
   z-index: 3;
@@ -584,68 +594,6 @@ watch(
   font-family: "Times New Roman", serif;
 }
 
-.map-legend {
-  top: 110px;
-  right: 18px;
-  display: grid;
-  gap: 10px;
-  min-width: 168px;
-  padding: 16px;
-  border: 1px solid rgba(21, 48, 74, 0.22);
-  border-radius: 10px;
-  background: rgba(20, 35, 55, 0.88);
-  color: #f2fbff;
-}
-
-.map-legend strong {
-  font-size: 1rem;
-}
-
-.legend-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: rgba(240, 248, 252, 0.9);
-  font-size: 0.92rem;
-}
-
-.legend-line {
-  display: inline-block;
-  width: 18px;
-  height: 4px;
-  border-radius: 999px;
-}
-
-.legend-line--basin {
-  border: 2px solid #ffffff;
-  background: transparent;
-  height: 12px;
-}
-
-.legend-line--river {
-  background: #67b9ff;
-}
-
-.legend-point {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-}
-
-.legend-point--water {
-  background: #375bff;
-  border: 2px solid #ffffff;
-}
-
-.legend-point--rain {
-  width: 0;
-  height: 0;
-  border-left: 7px solid transparent;
-  border-right: 7px solid transparent;
-  border-bottom: 13px solid #7fa43a;
-}
-
 .map-statusbar {
   left: 0;
   right: 0;
@@ -666,10 +614,6 @@ watch(
 
   .workspace-preview__canvas-wrap {
     min-height: 560px;
-  }
-
-  .map-legend {
-    top: 92px;
   }
 
   .map-statusbar {
