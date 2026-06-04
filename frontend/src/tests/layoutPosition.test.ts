@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { placeBoxInMapFrame } from '@/utils/layoutPosition'
+import { placeBoxInMapFrame, resizeBoxFromCenter } from '@/utils/layoutPosition'
 import type { LayoutBoxForm } from '@/types'
 
 describe('placeBoxInMapFrame', () => {
@@ -34,6 +34,17 @@ describe('placeBoxInMapFrame', () => {
       y: 11.31,
       width: 59.61,
       height: 77.22
+    })
+  })
+})
+
+describe('resizeBoxFromCenter', () => {
+  it('keeps the box center stable when width changes', () => {
+    expect(resizeBoxFromCenter({ x: 97.54, y: 188, width: 69.86, height: 11.18 }, 'width', 100)).toEqual({
+      x: 82.47,
+      y: 188,
+      width: 100,
+      height: 11.18
     })
   })
 })

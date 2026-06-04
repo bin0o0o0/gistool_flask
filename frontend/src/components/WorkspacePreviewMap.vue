@@ -281,18 +281,19 @@ watch(
           <div
             v-if="preview.layoutPreview.legend"
             class="layout-legend"
-            :class="{ 'layout-element--background': preview.layoutPreview.legend.background }"
             :style="preview.layoutPreview.legend.style"
           >
-            <strong>图例</strong>
-            <div
-              v-for="row in preview.layoutPreview.legend.rows"
-              :key="`${row.sourceType}-${row.label}`"
-              class="layout-legend__row"
-              :style="{ gap: `${preview.layoutPreview.legend.rowGapPx}px` }"
-            >
-              <span class="layout-legend__patch" :data-kind="row.sourceType" :style="preview.layoutPreview.legend.patchStyle"></span>
-              <span>{{ row.label }}</span>
+            <div class="layout-legend__content" :class="{ 'layout-element--background': preview.layoutPreview.legend.background }">
+              <strong>{{ preview.layoutPreview.legend.title }}</strong>
+              <div
+                v-for="row in preview.layoutPreview.legend.rows"
+                :key="`${row.sourceType}-${row.label}`"
+                class="layout-legend__row"
+                :style="{ marginTop: `${preview.layoutPreview.legend.rowGapPx}px` }"
+              >
+                <span class="layout-legend__patch" :data-kind="row.sourceType" :style="preview.layoutPreview.legend.patchStyle"></span>
+                <span>{{ row.label }}</span>
+              </div>
             </div>
           </div>
 
@@ -455,17 +456,30 @@ watch(
 
 .layout-legend {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: flex-start;
+  justify-content: flex-end;
   overflow: hidden;
-  padding: 7px;
-  border: 1px solid rgba(23, 37, 54, 0.18);
-  border-radius: 4px;
+  box-sizing: border-box;
   font-size: 12px;
   line-height: 1.2;
 }
 
+.layout-legend__content {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
+  padding: 4px 6px;
+  border: 1px solid rgba(23, 37, 54, 0.18);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
 .layout-legend strong {
+  display: block;
   margin-bottom: 2px;
   font-size: 13px;
 }
@@ -473,6 +487,7 @@ watch(
 .layout-legend__row {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   min-height: 14px;
   white-space: nowrap;
 }

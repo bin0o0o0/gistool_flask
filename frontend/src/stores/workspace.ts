@@ -101,6 +101,16 @@ const defaultOptions: RenderOptions = {
   }
 }
 
+const defaultTemplateProjectPath = 'backend/templates/gistool_test/gistool_test.aprx'
+const defaultTemplateUpload: UploadResult = {
+  file_id: 'default-template',
+  kind: 'template_project',
+  original_name: 'gistool_test.aprx',
+  path: defaultTemplateProjectPath,
+  suffix: '.aprx',
+  size_bytes: 0
+}
+
 export const useWorkspaceStore = defineStore('workspace', () => {
   const options = ref<RenderOptions>(defaultOptions)
   const loadingOptions = ref(false)
@@ -116,14 +126,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   })
 
   const uploads = ref<Record<WorkspaceUploadKind, UploadedFileState>>({
-    template_project: { uploading: false },
+    template_project: { uploading: false, result: defaultTemplateUpload },
     basin_boundary: { uploading: false },
     river_network: { uploading: false }
   })
 
   const form = ref<WorkspaceForm>({
     output_dir: `frontend_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`,
-    template_project: '',
+    template_project: defaultTemplateProjectPath,
     map_title: 'Basin river network map',
     output: {
       width_px: 1600,
@@ -147,7 +157,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       elements: {
         map_frame: { x: 6.53, y: 7.31, width: 257.15, height: 191.01 },
         title: { enabled: true, x: 97.54, y: 188, width: 69.86, height: 11.18, font_size: 20, background: true },
-        legend: { enabled: true, x: 12.19, y: 45.34, width: 59.61, height: 77.22, background: true },
+        legend: { enabled: true, x: 12.19, y: 122.56, width: 59.61, height: 77.22, background: true },
         scale_bar: { enabled: true, x: 83.99, y: 11.18, width: 92.12, height: 7.11 },
         north_arrow: { enabled: true, x: 249.26, y: 158.5, width: 7.04, height: 16.26 }
       },

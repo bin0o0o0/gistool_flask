@@ -254,6 +254,12 @@ class _FakeLayoutElement:
         self.textSize = 10
         self.background_color = None
         self.fittingStrategy = None
+        self.anchor = None
+        self.title = ""
+        self.showTitle = False
+
+    def setAnchor(self, anchor: str) -> None:
+        self.anchor = anchor
 
 
 class _FakeLayout:
@@ -569,6 +575,7 @@ def test_arcpy_renderer_tunes_legend_items_to_uniform_small_patches():
     from app.gis.render import arcpy_renderer
 
     legend = SimpleNamespace(
+        fittingStrategy="AdjustColumnsAndFont",
         scaleSymbols=True,
         autoFonts=False,
         minFontSize=6,
@@ -589,11 +596,38 @@ def test_arcpy_renderer_tunes_legend_items_to_uniform_small_patches():
     arcpy_renderer._tune_cim_legend_element(legend)
 
     assert legend.scaleSymbols is False
+    assert legend.fittingStrategy == "AdjustColumnsAndFont"
     assert legend.defaultPatchHeight == 6
     assert legend.defaultPatchWidth == 12
     assert all(item.scaleToPatch is True for item in legend.items)
     assert all(item.patchHeight == 6 for item in legend.items)
     assert all(item.patchWidth == 12 for item in legend.items)
+
+
+def test_arcpy_renderer_uses_manual_legend_fitting_for_manual_layout():
+    """手动布局时，图例应使用固定框策略，确保 width/height 能影响真实出图。"""
+    from types import SimpleNamespace
+
+    from app.gis.render import arcpy_renderer
+
+    legend = SimpleNamespace(
+        fittingStrategy="AdjustColumnsAndFont",
+        scaleSymbols=True,
+        autoFonts=True,
+        minFontSize=5,
+        defaultPatchHeight=12,
+        defaultPatchWidth=24,
+        itemGap=5,
+        classGap=5,
+        layerNameGap=5,
+        patchGap=5,
+        textGap=5,
+        items=[],
+    )
+
+    arcpy_renderer._tune_cim_legend_element(legend, {"fitting_strategy": "ManualColumns"})
+
+    assert legend.fittingStrategy == "ManualColumns"
 
 
 def test_arcpy_renderer_converts_requested_output_size_when_layout_uses_millimeters(tmp_path, monkeypatch):
@@ -732,8 +766,15 @@ def test_arcpy_renderer_applies_manual_layout_element_positions(tmp_path, monkey
     assert (title.elementWidth, title.elementHeight) == (80, 12)
     assert title.textSize == 16
     assert (legend.elementPositionX, legend.elementPositionY) == (12, 90)
+    assert (legend.elementWidth, legend.elementHeight) == (60, 70)
+    assert legend.title == "图例"
+    assert legend.showTitle is True
     assert (scale_bar.elementWidth, scale_bar.elementHeight) == (90, 8)
     assert (north_arrow.elementPositionX, north_arrow.elementPositionY) == (240, 160)
+    assert title.anchor == "BOTTOM_LEFT_CORNER"
+    assert legend.anchor == "BOTTOM_LEFT_CORNER"
+    assert scale_bar.anchor == "BOTTOM_LEFT_CORNER"
+    assert north_arrow.anchor == "BOTTOM_LEFT_CORNER"
 
 
 def test_arcpy_renderer_hides_disabled_layout_elements(tmp_path, monkeypatch):

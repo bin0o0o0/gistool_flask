@@ -40,6 +40,12 @@ describe('workspace store navigation', () => {
   it('uses the approved manual layout defaults from frontend_20260423-8', () => {
     const store = useWorkspaceStore()
 
+    expect(store.form.template_project).toBe('backend/templates/gistool_test/gistool_test.aprx')
+    expect(store.uploads.template_project.result).toMatchObject({
+      kind: 'template_project',
+      original_name: 'gistool_test.aprx',
+      path: 'backend/templates/gistool_test/gistool_test.aprx'
+    })
     expect(store.form.layout.elements.title).toMatchObject({
       x: 97.54,
       y: 188,
@@ -49,7 +55,7 @@ describe('workspace store navigation', () => {
     })
     expect(store.form.layout.elements.legend).toMatchObject({
       x: 12.19,
-      y: 45.34,
+      y: 122.56,
       width: 59.61,
       height: 77.22
     })
@@ -61,6 +67,25 @@ describe('workspace store navigation', () => {
       right: 0.1808,
       top: 0.14,
       bottom: 0.14
+    })
+  })
+
+  it('replaces the default template when a user uploads a new aprx', async () => {
+    mocks.upload.mockResolvedValue({
+      data: {
+        success: true,
+        data: fakeUpload('custom.aprx', 'template_project')
+      }
+    })
+    const store = useWorkspaceStore()
+
+    await store.uploadDataFile('template_project', { name: 'custom.aprx' } as File)
+
+    expect(store.form.template_project).toBe('D:/uploads/custom.aprx')
+    expect(store.uploads.template_project.result).toMatchObject({
+      kind: 'template_project',
+      original_name: 'custom.aprx',
+      path: 'D:/uploads/custom.aprx'
     })
   })
 
@@ -146,7 +171,7 @@ describe('workspace store navigation', () => {
   })
 })
 
-function fakeUpload(name: string, kind: 'basin_boundary' | 'station_excel' = 'basin_boundary') {
+function fakeUpload(name: string, kind: 'template_project' | 'basin_boundary' | 'station_excel' = 'basin_boundary') {
   return {
     file_id: name,
     kind,

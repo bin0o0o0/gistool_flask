@@ -9,7 +9,7 @@ import {
   basinFillColorOptions,
   riverColorOptions
 } from '@/utils/mapOutputStyleOptions'
-import { nearestBoxCornerInMapFrame, placeBoxInMapFrame, type LayoutCorner } from '@/utils/layoutPosition'
+import { nearestBoxCornerInMapFrame, placeBoxInMapFrame, resizeBoxFromCenter, type LayoutCorner } from '@/utils/layoutPosition'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type {
   LegendNameOverrideForm,
@@ -162,13 +162,31 @@ function colorLabel(key: string, value: string) {
 }
 
 function activeLegendCorner() {
-  return nearestBoxCornerInMapFrame(store.form.layout.elements.legend, store.form.layout.elements.map_frame)
+  const legend = store.form.layout.elements.legend
+  return nearestBoxCornerInMapFrame(
+    {
+      ...legend,
+      y: legend.y - legend.height
+    },
+    store.form.layout.elements.map_frame
+  )
 }
 
 function setLegendCorner(corner: LayoutCorner) {
   const next = placeBoxInMapFrame(store.form.layout.elements.legend, store.form.layout.elements.map_frame, corner)
   store.form.layout.elements.legend.x = next.x
-  store.form.layout.elements.legend.y = next.y
+  store.form.layout.elements.legend.y = next.y + next.height
+  store.markStepConfigured('output')
+}
+
+function updateTitleLayoutField(field: keyof LayoutBoxForm, value: number | undefined) {
+  const nextValue = Number(value)
+  if (!Number.isFinite(nextValue)) return
+  const next = resizeBoxFromCenter(store.form.layout.elements.title, field, nextValue)
+  store.form.layout.elements.title.x = next.x
+  store.form.layout.elements.title.y = next.y
+  store.form.layout.elements.title.width = next.width
+  store.form.layout.elements.title.height = next.height
   store.markStepConfigured('output')
 }
 
@@ -700,17 +718,6 @@ function onStepBack(step: 'data' | 'style' | 'stations-style' | 'stations-attrs'
               <el-input v-model="store.form.map_title" @change="markOutput" />
             </label>
             <label>
-              <span>标题框宽度</span>
-              <el-input-number
-                v-model="store.form.layout.elements.title.width"
-                :min="1"
-                :step="1"
-                :precision="2"
-                controls-position="right"
-                @change="markOutput"
-              />
-            </label>
-            <label>
               <span>输出目录</span>
               <el-input v-model="store.form.output_dir" @change="markOutput" />
             </label>
@@ -762,11 +769,11 @@ function onStepBack(step: 'data' | 'style' | 'stations-style' | 'stations-attrs'
               <label v-for="field in layoutFields" :key="`title-${field.key}`">
                 <span>{{ field.label }}</span>
                 <el-input-number
-                  v-model="store.form.layout.elements.title[field.key]"
+                  :model-value="store.form.layout.elements.title[field.key]"
                   :step="1"
                   :precision="2"
                   controls-position="right"
-                  @change="markOutput"
+                  @update:model-value="updateTitleLayoutField(field.key, $event)"
                 />
               </label>
               <label>

@@ -32,6 +32,7 @@ export interface WorkspacePreviewLegendRow {
 }
 
 export interface WorkspacePreviewLegend extends WorkspacePreviewBox {
+  title: string
   rows: WorkspacePreviewLegendRow[]
   patchStyle: Record<string, string>
   rowGapPx: number
@@ -58,6 +59,7 @@ export interface WorkspacePreviewData {
 const DEFAULT_CENTER: [number, number] = [105.2, 27.06]
 const FALLBACK_LAYOUT_WIDTH_UNITS = 270
 const FALLBACK_LAYOUT_HEIGHT_UNITS = 200
+const LAYOUT_REFERENCE_DPI = 150
 const MILLIMETERS_PER_INCH = 25.4
 
 export function buildWorkspacePreviewData(form: WorkspaceForm): WorkspacePreviewData {
@@ -179,13 +181,12 @@ function percent(value: number) {
 }
 
 function layoutPageUnits(form: WorkspaceForm) {
-  const dpi = Number(form.output.dpi)
   const widthPx = Number(form.output.width_px)
   const heightPx = Number(form.output.height_px)
-  if (dpi > 0 && widthPx > 0 && heightPx > 0) {
+  if (widthPx > 0 && heightPx > 0) {
     return {
-      width: (widthPx / dpi) * MILLIMETERS_PER_INCH,
-      height: (heightPx / dpi) * MILLIMETERS_PER_INCH
+      width: (widthPx / LAYOUT_REFERENCE_DPI) * MILLIMETERS_PER_INCH,
+      height: (heightPx / LAYOUT_REFERENCE_DPI) * MILLIMETERS_PER_INCH
     }
   }
   return {
@@ -201,6 +202,16 @@ function boxStyle(box: LayoutBoxForm, pageUnits: { width: number; height: number
     width: percent(box.width / pageUnits.width),
     height: percent(box.height / pageUnits.height)
   }
+}
+
+function topLeftAnchoredBoxStyle(box: LayoutBoxForm, pageUnits: { width: number; height: number }) {
+  return boxStyle(
+    {
+      ...box,
+      y: box.y - box.height
+    },
+    pageUnits
+  )
 }
 
 function buildLayoutPreview(form: WorkspaceForm): WorkspaceLayoutPreview {
@@ -225,7 +236,8 @@ function buildLayoutPreview(form: WorkspaceForm): WorkspaceLayoutPreview {
       : null,
     legend: elements.legend.enabled
       ? {
-          style: boxStyle(elements.legend, pageUnits),
+          style: topLeftAnchoredBoxStyle(elements.legend, pageUnits),
+          title: '图例',
           rows: collectLegendNameOverrides(form).map((row) => ({
             sourceType: row.source_type,
             label: row.legend_name

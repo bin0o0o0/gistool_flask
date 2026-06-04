@@ -37,3 +37,28 @@ export function nearestBoxCornerInMapFrame(box: LayoutBoxForm, mapFrame: LayoutB
     { corner: 'top-left' as LayoutCorner, distance: Number.POSITIVE_INFINITY }
   ).corner
 }
+
+export function resizeBoxFromCenter(box: LayoutBoxForm, field: keyof LayoutBoxForm, value: number): LayoutBoxForm {
+  if (field === 'width') {
+    const delta = value - box.width
+    return {
+      ...box,
+      x: round2(box.x - delta / 2),
+      width: round2(value)
+    }
+  }
+
+  if (field === 'height') {
+    const delta = value - box.height
+    return {
+      ...box,
+      y: round2(box.y - delta / 2),
+      height: round2(value)
+    }
+  }
+
+  return {
+    ...box,
+    [field]: round2(value)
+  }
+}

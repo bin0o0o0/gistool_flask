@@ -189,6 +189,18 @@ describe('buildWorkspacePreviewData', () => {
     expect(preview.layoutPreview.northArrow?.style.height).toBe('8.00%')
   })
 
+  it('keeps layout preview coordinates stable when only dpi changes', () => {
+    const form = createWorkspaceForm()
+    const before = buildWorkspacePreviewData(form).layoutPreview
+
+    form.output.dpi = 300
+    const after = buildWorkspacePreviewData(form).layoutPreview
+
+    expect(after.mapFrame.style).toEqual(before.mapFrame.style)
+    expect(after.title?.style).toEqual(before.title?.style)
+    expect(after.legend?.style).toEqual(before.legend?.style)
+  })
+
   it('omits the legend overlay when legend is disabled', () => {
     const form = createWorkspaceForm()
     form.layout.elements.legend.enabled = false
@@ -232,6 +244,8 @@ describe('buildWorkspacePreviewData', () => {
       marginRight: '2px'
     })
     expect(preview.layoutPreview.legend?.rowGapPx).toBe(2)
+    expect(preview.layoutPreview.legend?.style.left).toBe('4.50%')
+    expect(preview.layoutPreview.legend?.style.bottom).toBe('22.31%')
   })
 
   it('does not include empty station layers in the preview legend', () => {
@@ -334,7 +348,7 @@ function createWorkspaceForm(): WorkspaceForm {
       elements: {
         map_frame: { x: 6.53, y: 7.31, width: 257.15, height: 191.01 },
         title: { enabled: true, x: 97.54, y: 188, width: 69.86, height: 11.18, font_size: 20, background: true },
-        legend: { enabled: true, x: 12.19, y: 45.34, width: 59.61, height: 77.22, background: true },
+        legend: { enabled: true, x: 12.19, y: 122.56, width: 59.61, height: 77.22, background: true },
         scale_bar: { enabled: true, x: 83.99, y: 11.18, width: 92.12, height: 7.11 },
         north_arrow: { enabled: true, x: 249.26, y: 158.5, width: 7.04, height: 16.26 }
       },
