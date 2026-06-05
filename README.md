@@ -20,56 +20,111 @@
 
 ## 快速使用 Web App
 
-这个项目现在包含一个浏览器工作台：前端负责上传数据、配置样式和提交出图；后端用 Flask 接收请求，并在同一个 ArcGIS Pro Python 进程里调用 ArcPy 导出 `map.png`。
+这个项目现在包含三个并列功能：流域出图、流域提取、生成流域边界。前端统一运行在 `5173`，后端按功能固定拆成 `5000/5001/5002` 三个进程，避免 ArcGIS Pro Python 和普通 GIS Python 依赖互相冲突。
 
 ![Web App 工作台首页](docs/readme-assets/webapp-home.png)
 
-### 1. 启动后端
+### 最短部署路径
 
-真实出图必须用 ArcGIS Pro Python 启动后端，因为普通 `.venv` 里没有 ArcPy：
+在当前项目结构下，最短路径就是：先准备两个 Python 运行时，再用统一脚本一次启动。
+
+必备运行时：
+
+- ArcGIS Pro Python / `propy.bat`：只负责流域出图，因为它需要 ArcPy。
+- 普通 GIS Python：负责流域提取和生成流域边界，需要装好 `pysheds/rasterio/shapely/geopandas` 等依赖。当前开发机示例是 `D:\python3.9.5\python.exe`，但不是硬性路径。
+- Node.js：负责启动 Vite 前端。
+
+第一次部署先安装依赖：
 
 ```powershell
 cd D:\work\2026\code\life\gis_flask_study
-& "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" backend\run.py
+.\scripts\setup.ps1
+cd frontend
+npm install
 ```
 
-"D:\work\2026\code\life\gis_flask_study"这个是你github项目部署的位置，"C:\Program Files\ArcGIS\Pro\"这个是你arcgis pro下载的位置。
-如果你的电脑更习惯直接调用 ArcGIS Pro 环境里的 `python.exe`，也可以这样启动：
+然后回到项目根目录启动整套项目：
 
 ```powershell
 cd D:\work\2026\code\life\gis_flask_study
-& "C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe" backend\run.py
+.\scripts\start-dev.ps1
 ```
 
-看到下面这行就说明后端已经启动：
+默认端口固定为：
 
-```text
-Running on http://127.0.0.1:5000
+| 端口 | 功能 | Python 环境 |
+| --- | --- | --- |
+| `5000` | 流域出图 `/map-output` | ArcGIS Pro Python / `propy.bat` |
+| `5001` | 流域提取 `/watershed-extract` | 普通 GIS Python |
+| `5002` | 生成流域边界 `/watershed-boundary-generator` | 普通 GIS Python |
+| `5173` | Vite 前端 | Node.js |
+
+如果 ArcGIS Pro 或普通 GIS Python 不在默认路径，启动时传入路径：
+
+```powershell
+.\scripts\start-dev.ps1 `
+  -PropyPath "D:\ArcGIS\Pro\bin\Python\Scripts\propy.bat" `
+  -GisPythonPath "D:\Python39\python.exe"
 ```
 
-可以用健康检查确认：
+启动后检查健康接口：
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:5000/api/health
-```
-
-### 2. 启动前端
-
-另开一个 PowerShell 窗口：
-
-```powershell
-cd D:\work\2026\code\life\gis_flask_study\frontend
-npm install
-npm run dev
+Invoke-RestMethod http://127.0.0.1:5001/api/health
+Invoke-RestMethod http://127.0.0.1:5002/api/health
 ```
 
 浏览器打开：
 
 ```text
-http://127.0.0.1:5173
+http://localhost:5173/
 ```
 
-Vite 会按接口路径分流到固定后端端口：流域出图走 `5000`，流域提取走 `5001`，生成流域边界走 `5002`。所以前端页面可以直接访问本地 Flask 后端，不需要在页面里手动改接口地址。
+常用页面：
+
+```text
+http://localhost:5173/map-output
+http://localhost:5173/watershed-extract
+http://localhost:5173/watershed-boundary-generator
+```
+
+Vite 会按接口路径分流到固定后端端口：`/api/watershed-boundary` 走 `5002`，`/api/watershed` 走 `5001`，其他 `/api` 走 `5000`。所以前端页面不需要手动改接口地址。
+
+### 单独启动某个后端
+
+一般开发直接用 `scripts/start-dev.ps1`。只有排查问题时，才建议单独启动。
+
+流域出图必须使用 ArcGIS Pro Python：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study
+$env:GIS_TOOL_SERVICE="render"
+& "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" backend\run.py
+```
+
+流域提取使用普通 GIS Python：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study
+$env:GIS_TOOL_SERVICE="watershed"
+& "D:\python3.9.5\python.exe" backend\run.py
+```
+
+生成流域边界使用普通 GIS Python：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study
+$env:GIS_TOOL_SERVICE="watershed-boundary"
+& "D:\python3.9.5\python.exe" backend\run.py
+```
+
+前端单独启动：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study\frontend
+npm run dev -- --host 0.0.0.0 --port 5173
+```
 
 ### 3. 站点 Excel 标准格式
 
@@ -234,9 +289,16 @@ ArcGIS Pro Python / propy.bat
 $env:ARCGIS_PROPY="D:\ArcGIS\Pro\bin\Python\Scripts\propy.bat"
 ```
 
-最后启动后端：
+最后启动整套项目。一般不要手动分别开三个后端，直接用统一脚本：
 
 ```powershell
+.\scripts\start-dev.ps1
+```
+
+如果只想单独调试流域出图后端，再手动运行：
+
+```powershell
+$env:GIS_TOOL_SERVICE="render"
 & "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" backend\run.py
 ```
 
@@ -245,12 +307,12 @@ $env:ARCGIS_PROPY="D:\ArcGIS\Pro\bin\Python\Scripts\propy.bat"
 前端位于 `frontend/`，使用 Vue 3、Vite、TypeScript、Pinia、Axios 和 Element Plus。
 页面风格借鉴 Gitee 参考项目的暖色纸张感工作台，但保留 Element Plus 的表单、上传和颜色选择器。
 
-启动后端后，再启动前端：
+如果不用统一脚本，也可以单独启动前端：
 
 ```powershell
 cd frontend
 npm install
-npm run dev
+npm run dev -- --host 0.0.0.0 --port 5173
 ```
 
 开发服务器默认地址是：
@@ -271,7 +333,7 @@ Vite 已按接口路径配置代理：`/api/watershed-boundary` 转到 `5002`，
 - 复制 `/api/render` JSON 请求体，方便继续用 Apifox 对照调试。
 - 出图成功后在页面中预览最终 `map.png`。
 
-三个后端默认都只监听本机 `127.0.0.1`，并且默认关闭 Flask debug。端口由 `GIS_TOOL_SERVICE` 固定决定，不再通过 `FLASK_PORT` 临时切换。局域网联调时再显式设置：
+三个后端默认都只监听本机 `127.0.0.1`，并且默认关闭 Flask debug。端口由 `GIS_TOOL_SERVICE` 固定决定，不再通过 `FLASK_PORT` 临时切换。开发时推荐用 `.\scripts\start-dev.ps1` 同时启动 `5000/5001/5002/5173`。局域网联调时再显式设置：
 
 ```powershell
 $env:FLASK_HOST="0.0.0.0"
