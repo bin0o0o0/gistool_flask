@@ -36,11 +36,30 @@
 
 第一次部署先安装依赖：
 
+`.\scripts\setup.ps1` 会把 Flask 等普通 Python 包安装到项目自己的 `.venv`。流域出图服务启动时仍然用 ArcGIS Pro Python / `propy.bat`，因为它负责提供 ArcPy；项目代码会在启动时把 `.venv\Lib\site-packages` 加进 ArcGIS Pro Python 的搜索路径，让 ArcGIS Pro Python 也能找到 Flask。
+
+注意：当前 `setup.ps1` 用来创建项目 `.venv` 的 Python 版本固定检查为 `3.9`。这不代表三个后端都必须用 Python 3.9；它只说明这个安装脚本目前要求用 Python 3.9 来创建 `.venv`。如果电脑没有 `python3.9` 命令，可以传入完整路径：
+
 ```powershell
 cd D:\work\2026\code\life\gis_flask_study
 .\scripts\setup.ps1
-cd frontend
+```
+
+```powershell
+.\scripts\setup.ps1 -PythonPath "D:\Python39\python.exe"
+```
+
+再安装前端依赖：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study\frontend
 npm install
+```
+
+如果 ArcGIS Pro 不在默认位置，也可以先验证它能否从项目 `.venv` 导入 Flask：
+
+```powershell
+.\scripts\check_runtime.ps1 -PropyPath "D:\ArcGIS\Pro\bin\Python\Scripts\propy.bat"
 ```
 
 然后回到项目根目录启动整套项目：
@@ -242,64 +261,6 @@ frontend/
     components/
     stores/
     api/
-```
-
-## 推荐部署方式
-
-推荐把 Flask 固定安装到项目自己的 `.venv`，然后仍然用 ArcGIS Pro 自带 Python 启动后端：
-
-```text
-项目 .venv
-  存放 Flask 等普通 Python 依赖
-
-ArcGIS Pro Python / propy.bat
-  提供 arcpy，并在启动时额外查找项目 .venv\Lib\site-packages
-```
-
-先安装项目依赖：
-
-```powershell
-.\scripts\setup.ps1
-```
-
-安装脚本需要一个能安装项目依赖的 Python 环境。当前仓库在 Python 3.9 环境下验证过，所以脚本默认会尝试调用 `python3.9`；如果你的电脑没有这个命令，或想使用其他已验证可用的 Python 环境，可以通过 `-PythonPath` 传入完整路径：
-
-```powershell
-.\scripts\setup.ps1 -PythonPath "D:\Python39\python.exe"
-```
-
-注意：这不是说整个项目后端必须固定使用 Python 3.9。流域出图仍然必须用 ArcGIS Pro Python / `propy.bat`，因为它需要 ArcPy；流域提取和生成流域边界只要求运行环境里装好对应的普通 GIS 依赖。
-
-如果默认 PyPI 网络慢或代理报错，可以改用镜像源：
-
-```powershell
-.\scripts\setup.ps1 -IndexUrl https://pypi.tuna.tsinghua.edu.cn/simple
-```
-
-再检查 ArcGIS Pro Python 能否找到项目 `.venv` 里的 Flask：
-
-```powershell
-.\scripts\check_runtime.ps1
-```
-
-如果 ArcGIS Pro 不是默认安装路径，可以通过参数或环境变量指定 `propy.bat`：
-
-```powershell
-.\scripts\check_runtime.ps1 -PropyPath "D:\ArcGIS\Pro\bin\Python\Scripts\propy.bat"
-$env:ARCGIS_PROPY="D:\ArcGIS\Pro\bin\Python\Scripts\propy.bat"
-```
-
-最后启动整套项目。一般不要手动分别开三个后端，直接用统一脚本：
-
-```powershell
-.\scripts\start-dev.ps1
-```
-
-如果只想单独调试流域出图后端，再手动运行：
-
-```powershell
-$env:GIS_TOOL_SERVICE="render"
-& "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" backend\run.py
 ```
 
 ## 前端工作台
