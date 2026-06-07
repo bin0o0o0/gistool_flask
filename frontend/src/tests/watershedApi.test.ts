@@ -25,6 +25,14 @@ describe('watershedApi', () => {
     expect(postMock).toHaveBeenCalledWith('/api/watershed/acc_threshold', payload)
   })
 
+  it('posts local file selection payload to /api/watershed/select-local-file', async () => {
+    const payload = { kind: 'dem' as const }
+
+    await watershedApi.selectLocalFile(payload)
+
+    expect(postMock).toHaveBeenCalledWith('/api/watershed/select-local-file', payload)
+  })
+
   it('posts initial stream payload to /api/watershed/step0_streams', async () => {
     const payload = { dem_path: 'dem.tif', area_threshold: 35.95, random_folder_name: 'program', plan_name: '方案 01' }
 

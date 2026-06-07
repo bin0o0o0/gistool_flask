@@ -1,7 +1,7 @@
 import api from './client'
 import type { ApiResponse, UploadKind, UploadResult } from '@/types'
 
-function createUploadsApi(endpoint: string) {
+export function createUploadsApi(endpoint: string) {
   return {
     upload(file: File, kind: UploadKind) {
       const formData = new FormData()

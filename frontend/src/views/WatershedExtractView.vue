@@ -1,22 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { DataLine, Location, Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { DataLine, Location } from '@element-plus/icons-vue'
 
 import SiteNav from '@/components/SiteNav.vue'
 import WatershedPreviewMap from '@/components/WatershedPreviewMap.vue'
 import { getApiErrorMessage } from '@/api/client'
-import { watershedUploadsApi } from '@/api/uploads'
 import { watershedApi } from '@/api/watershed'
 import heroBackground from '@/assets/home-water-basin-bg.png'
-import {
-  collectBoundaryFiles,
-  firstDemFile,
-  isShapefileComponentSelection
-} from '@/utils/watershedUpload'
 import type {
   BreakPoint,
   GeoJsonFeatureCollection,
-  UploadResult,
   WatershedOutputs,
   WatershedStep0Response,
   WatershedStep1Response,
@@ -37,10 +30,15 @@ interface WorkflowState {
   breakPoints: BreakPoint[]
 }
 
-const DEFAULT_DEM_PATH = 'D:\\work\\2026\\code\\data\\data\\dem\\dem.tif'
+interface BreakPointDraft {
+  lon: string
+  lat: string
+}
+
+const DEFAULT_DEM_PATH = 'D:\\work\\data\\data\\dem\\dem.tif'
 
 const steps: Array<{ id: StepId; title: string; endpoint: string; description: string }> = [
-  { id: 1, title: '累计流阈值设置', endpoint: '/api/watershed/acc_threshold', description: '上传边界并计算默认面积阈值' },
+  { id: 1, title: '上传基础数据', endpoint: '/api/watershed/acc_threshold', description: '上传边界并计算默认面积阈值' },
   { id: 2, title: '初始化流域', endpoint: '/api/watershed/step0_streams', description: '生成初始边界和河网' },
   { id: 3, title: '生成流域', endpoint: '/api/watershed/step1', description: '生成子流域、河段和控制点' },
   { id: 4, title: '合并 / 删除', endpoint: '/api/watershed/step2', description: '调整子流域拓扑结果' }
@@ -50,8 +48,6 @@ const activeStep = ref<StepId>(1)
 const statusByStep = ref<Record<StepId, StepStatus>>({ 1: 'idle', 2: 'idle', 3: 'idle', 4: 'idle' })
 const errorMessage = ref('')
 const successMessage = ref('')
-const boundaryUpload = ref<UploadResult | null>(null)
-const demUpload = ref<UploadResult | null>(null)
 const boundaryPreview = ref<GeoJsonFeatureCollection | null>(null)
 const planNameWarning = ref('')
 const defaultAreaThreshold = ref<number | null>(null)
@@ -62,8 +58,7 @@ const step2Result = ref<WatershedStep2Response | null>(null)
 const operationMode = ref<OperationMode>('merge')
 const selectedWatershedIds = ref<string[]>([])
 const manualWatershedIdsText = ref('')
-const dropTarget = ref<'dem' | 'boundary' | null>(null)
-
+const breakPointDrafts = ref<BreakPointDraft[]>([])
 const state = ref<WorkflowState>({
   planName: '',
   demPath: DEFAULT_DEM_PATH,
@@ -143,93 +138,166 @@ async function validatePlanName() {
   }
 }
 
-async function uploadDem(event: Event) {
+async function loadBoundaryPreview() {
+  if (!state.value.shapefilePath.trim()) {
+    errorMessage.value = '请先填写流域边界文件的本机绝对路径。'
+    return
+  }
+  clearNotice()
+  try {
+    const previewResponse = await watershedApi.previewLayer({ path: state.value.shapefilePath.trim() })
+    boundaryPreview.value = previewResponse.data.layer
+    showSuccess('流域边界预览已加载，地图会先显示边界范围。')
+  } catch (caught) {
+    showError(caught)
+  }
+}
+
+async function loadWatershedDefaults() {
+  try {
+    const response = await watershedApi.defaults()
+    if (response.data.success && response.data.dem_path) {
+      state.value.demPath = response.data.dem_path
+    }
+  } catch (caught) {
+    if (import.meta.env.MODE !== 'test') console.warn('loadWatershedDefaults failed', caught)
+  }
+}
+
+async function openLocalFilePicker(kind: 'dem' | 'boundary') {
+  clearNotice()
+  try {
+    const response = await watershedApi.selectLocalFile({ kind })
+    if (!response.data.success || response.data.cancelled || !response.data.path) return
+
+    if (kind === 'dem') {
+      state.value.demPath = response.data.path
+      showSuccess('DEM 路径已从本机文件选择器回填。')
+      return
+    }
+
+    state.value.shapefilePath = response.data.path
+    showSuccess('边界路径已从本机文件选择器回填。')
+    await loadBoundaryPreview()
+  } catch (caught) {
+    showError(caught)
+  }
+}
+
+function resolveSelectedLocalPath(input: HTMLInputElement, file: File | undefined) {
+  const fileWithPath = file as File & { path?: string }
+  if (fileWithPath?.path) return fileWithPath.path
+
+  const rawValue = input.value?.trim()
+  if (rawValue && !/^[a-zA-Z]:\\fakepath\\/i.test(rawValue)) return rawValue
+
+  return ''
+}
+
+function fileBaseName(path: string) {
+  return path.split(/[\\/]/).pop()?.toLowerCase() || ''
+}
+
+function selectedFileMatchesPath(file: File, path: string) {
+  return !!path.trim() && fileBaseName(path) === file.name.toLowerCase()
+}
+
+async function applyDefaultDemForSelectedFile(file: File) {
+  const currentDemPath = state.value.demPath.trim()
+  if (selectedFileMatchesPath(file, currentDemPath)) {
+    showSuccess('当前环境未返回文件绝对路径，已沿用当前 DEM 路径。')
+    return true
+  }
+
+  try {
+    const response = await watershedApi.defaults()
+    const defaultDemPath = response.data.dem_path || ''
+    if (response.data.success && selectedFileMatchesPath(file, defaultDemPath)) {
+      state.value.demPath = defaultDemPath
+      showSuccess('当前环境未返回文件绝对路径，已改用后端配置的默认 DEM 路径。')
+      return true
+    }
+  } catch (caught) {
+    if (import.meta.env.MODE !== 'test') console.warn('applyDefaultDemForSelectedFile failed', caught)
+  }
+  return false
+}
+
+async function handleLocalPathSelection(kind: 'dem' | 'boundary', event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  input.value = ''
   if (!file) return
-  await uploadDemFiles([file])
-}
 
-async function uploadDemFiles(files: File[]) {
-  const file = firstDemFile(files)
-  if (!file) {
-    errorMessage.value = '请拖入或选择 .tif / .tiff 的 DEM 文件。'
-    return
-  }
-  clearNotice()
-  try {
-    const response = await watershedUploadsApi.upload(file, 'dem')
-    if (!response.data.success || !response.data.data) throw new Error(response.data.message || 'DEM 上传失败')
-    demUpload.value = response.data.data
-    state.value.demPath = response.data.data.path
-    showSuccess('DEM 已上传，后续步骤会直接复用这个服务器路径。')
-  } catch (caught) {
-    showError(caught)
-  }
-}
-
-async function uploadBoundary(event: Event) {
-  const input = event.target as HTMLInputElement
-  const files = Array.from(input.files || [])
+  const path = resolveSelectedLocalPath(input, file)
   input.value = ''
-  if (!files.length) return
-  await uploadBoundaryFiles(files)
-}
 
-async function uploadBoundaryFiles(files: File[]) {
-  const boundaryFiles = collectBoundaryFiles(files)
-  if (!boundaryFiles.length) {
-    errorMessage.value = '请拖入或选择边界文件，支持 .shp 组件 / .geojson / .kml / .zip。'
+  // 浏览器安全机制可能只返回 C:\fakepath\...；本地化模式不再复制上传文件。
+  if (!path) {
+    if (kind === 'dem' && await applyDefaultDemForSelectedFile(file)) {
+      return
+    }
+    errorMessage.value = '当前环境未返回文件绝对路径，请继续手动粘贴本机路径。'
     return
   }
-  clearNotice()
-  try {
-    const response = isShapefileComponentSelection(boundaryFiles)
-      ? await watershedUploadsApi.uploadMany(boundaryFiles, 'basin_boundary')
-      : await watershedUploadsApi.upload(boundaryFiles[0], 'basin_boundary')
-    if (!response.data.success || !response.data.data) throw new Error(response.data.message || '边界上传失败')
-    boundaryUpload.value = response.data.data
-    state.value.shapefilePath = response.data.data.path
-    const previewResponse = await watershedApi.previewLayer({ path: response.data.data.path })
-    boundaryPreview.value = previewResponse.data.layer
-    showSuccess('流域边界已上传，地图会先显示边界预览。')
-  } catch (caught) {
-    showError(caught)
-  }
-}
 
-function resetDemPath() {
-  demUpload.value = null
-  state.value.demPath = DEFAULT_DEM_PATH
-}
-
-function startDrop(target: 'dem' | 'boundary', event: DragEvent) {
-  event.preventDefault()
-  dropTarget.value = target
-}
-
-function endDrop() {
-  dropTarget.value = null
-}
-
-async function handleDrop(target: 'dem' | 'boundary', event: DragEvent) {
-  event.preventDefault()
-  dropTarget.value = null
-  const files = Array.from(event.dataTransfer?.files || [])
-  if (!files.length) return
-  if (target === 'dem') {
-    await uploadDemFiles(files)
+  // Electron / 桌面环境：file.path 可用，直接回填
+  if (kind === 'dem') {
+    state.value.demPath = path
+    showSuccess('DEM 路径已从本机文件选择器自动回填。')
     return
   }
-  await uploadBoundaryFiles(files)
+
+  state.value.shapefilePath = path
+  await loadBoundaryPreview()
 }
 
-function dropZoneClass(target: 'dem' | 'boundary') {
+function formatBreakPointDraft(point: BreakPoint): BreakPointDraft {
   return {
-    'drop-zone': true,
-    'drop-zone--active': dropTarget.value === target
+    lon: String(point[0]),
+    lat: String(point[1]),
   }
+}
+
+function syncBreakPointDrafts() {
+  breakPointDrafts.value = state.value.breakPoints.map((point, index) => {
+    const current = breakPointDrafts.value[index]
+    if (
+      current &&
+      Number(current.lon) === point[0] &&
+      Number(current.lat) === point[1]
+    ) {
+      return current
+    }
+    return formatBreakPointDraft(point)
+  })
+}
+
+function parseBreakPointDraftValue(value: string, label: string) {
+  const numeric = Number(value.trim())
+  if (!Number.isFinite(numeric)) {
+    throw new Error(`${label} 必须是有效数字。`)
+  }
+  return numeric
+}
+
+function commitBreakPointDraft(index: number) {
+  const draft = breakPointDrafts.value[index]
+  const point = state.value.breakPoints[index]
+  if (!draft || !point) return
+
+  const lon = Number(parseBreakPointDraftValue(draft.lon, '控制点经度').toFixed(6))
+  const lat = Number(parseBreakPointDraftValue(draft.lat, '控制点纬度').toFixed(6))
+
+  point[0] = lon
+  point[1] = lat
+  breakPointDrafts.value[index] = formatBreakPointDraft(point)
+}
+
+function resolveBreakPoints() {
+  state.value.breakPoints.forEach((_point, index) => {
+    commitBreakPointDraft(index)
+  })
+  return state.value.breakPoints
 }
 
 async function runThreshold() {
@@ -302,7 +370,7 @@ async function runStep1() {
       area_threshold: state.value.areaThreshold,
       shapefile_path: state.value.shapefilePath || undefined,
       random_folder_name: state.value.randomFolderName,
-      break_points: state.value.breakPoints,
+      break_points: resolveBreakPoints(),
       plan_name: state.value.planName
     })
     const data = response.data as WatershedStep1Response
@@ -326,7 +394,8 @@ async function runStep2() {
     return
   }
   if (!ids.length) {
-    errorMessage.value = '请至少选择或输入一个子流域 ID。'
+    setStepStatus(4, 'done')
+    showSuccess('未选择子流域 ID，已沿用步骤三的初始子流域结果。')
     return
   }
   setStepStatus(4, 'running')
@@ -350,24 +419,28 @@ async function runStep2() {
   }
 }
 
+function nextBreakPointId() {
+  const currentMaxId = state.value.breakPoints.reduce((maxId, point) => {
+    const numericId = Number(point[2])
+    return Number.isFinite(numericId) ? Math.max(maxId, numericId) : maxId
+  }, 1)
+  return Math.max(2, currentMaxId + 1)
+}
+
 function addBreakPoint() {
-  const nextId = state.value.breakPoints.length + 1
+  const nextId = nextBreakPointId()
   state.value.breakPoints.push([105.1, 27.0, nextId])
+  syncBreakPointDrafts()
 }
 
 function addBreakPointFromMap([lon, lat]: [number, number]) {
-  state.value.breakPoints.push([lon, lat, state.value.breakPoints.length + 1])
+  state.value.breakPoints.push([lon, lat, nextBreakPointId()])
+  syncBreakPointDrafts()
 }
 
 function removeBreakPoint(index: number) {
   state.value.breakPoints.splice(index, 1)
-}
-
-function updateBreakPoint(index: number, axis: 0 | 1 | 2, value: string) {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return
-  const point = state.value.breakPoints[index]
-  point[axis] = axis === 2 ? Math.round(numeric) : Number(numeric.toFixed(6))
+  breakPointDrafts.value.splice(index, 1)
 }
 
 function clearStep2Selection() {
@@ -411,6 +484,18 @@ function normalizedSelectedIds() {
 
 watch(watershedIds, () => {
   syncStep2SelectionWithAvailableIds()
+})
+
+watch(
+  () => state.value.breakPoints,
+  () => {
+    syncBreakPointDrafts()
+  },
+  { deep: true, immediate: true }
+)
+
+onMounted(() => {
+  void loadWatershedDefaults()
 })
 </script>
 
@@ -477,7 +562,7 @@ watch(watershedIds, () => {
             <section v-show="activeStep === 1" class="panel-section panel-card">
               <div class="panel-header">
                 <p class="panel-eyebrow">POST /api/watershed/acc_threshold</p>
-                <h2>累计流阈值设置</h2>
+                <h2>上传基础数据</h2>
                 <p class="panel-copy">先确定方案名称，再上传 DEM 与边界数据。关键路径会在后续步骤中自动继承。</p>
               </div>
 
@@ -487,55 +572,33 @@ watch(watershedIds, () => {
               </label>
               <p v-if="planNameWarning" class="field-warning">{{ planNameWarning }}</p>
 
-              <div
-                :class="['upload-slab', dropZoneClass('dem')]"
-                @dragenter="startDrop('dem', $event)"
-                @dragover="startDrop('dem', $event)"
-                @dragleave="endDrop"
-                @drop="handleDrop('dem', $event)"
-              >
-                <label class="upload-slab__action upload-button">
-                  <input type="file" accept=".tif,.tiff" @change="uploadDem" />
-                  <el-icon><UploadFilled /></el-icon>
-                  <span>{{ demUpload ? demUpload.original_name : '拖入或上传 DEM，可选' }}</span>
-                </label>
-                <p class="upload-slab__meta">如果不上传，默认使用系统 DEM 路径。</p>
+              <div class="upload-slab">
+                <p class="upload-slab__meta">
+                  请直接填写 DEM 文件的本机绝对路径。
+                </p>
                 <label class="field field--compact">
                   <span>DEM 路径 dem_path</span>
-                  <div class="field-row field-row--stacked">
-                    <input v-model="state.demPath" type="text" />
-                    <button class="icon-button icon-button--inline" type="button" title="恢复默认 DEM" @click="resetDemPath">
-                      <el-icon><Refresh /></el-icon>
-                    </button>
-                  </div>
+                  <input v-model="state.demPath" type="text" placeholder="例如 D:\\work\\data\\dem\\dem.tif" />
                 </label>
+                <button class="secondary-action secondary-action--full" type="button" @click="openLocalFilePicker('dem')">
+                  选择 DEM 文件
+                </button>
               </div>
 
-              <div
-                :class="['upload-slab', dropZoneClass('boundary')]"
-                @dragenter="startDrop('boundary', $event)"
-                @dragover="startDrop('boundary', $event)"
-                @dragleave="endDrop"
-                @drop="handleDrop('boundary', $event)"
-              >
-                <label class="upload-slab__action upload-button">
-                  <input
-                    type="file"
-                    accept=".shp,.shx,.dbf,.prj,.cpg,.geojson,.json,.kml,.zip"
-                    multiple
-                    @change="uploadBoundary"
-                  />
-                  <el-icon><UploadFilled /></el-icon>
-                  <span>{{ boundaryUpload ? boundaryUpload.original_name : '拖入或上传边界' }}</span>
-                </label>
-                <p class="upload-slab__meta">支持 .shp 组件、.geojson、.kml、.zip，支持从文件夹直接拖动文件。</p>
+              <div class="upload-slab">
+                <p class="upload-slab__meta">
+                  请直接填写流域边界文件的本机绝对路径。支持 `.shp`、`.geojson`、`.kml`、`.zip`。
+                </p>
                 <label class="field field--compact">
                   <span>流域边界 shapefile_path</span>
-                  <input v-model="state.shapefilePath" type="text" placeholder="上传后自动写入服务器路径" />
+                  <input v-model="state.shapefilePath" type="text" placeholder="例如 D:\\work\\data\\boundary\\watershed-boundary_1.geojson" />
                 </label>
+                <button class="secondary-action secondary-action--full" type="button" @click="openLocalFilePicker('boundary')">
+                  选择边界文件
+                </button>
               </div>
 
-              <p class="drop-caption">地图会先预览上传边界；真正的河网和子流域结果会在后面步骤自动接上。</p>
+              <p class="drop-caption">地图会先预览边界路径对应的数据；真正的河网和子流域结果会在后面步骤自动接上。</p>
 
               <button class="primary-action primary-action--full" type="button" :disabled="statusByStep[1] === 'running'" @click="runThreshold">
                 <el-icon><DataLine /></el-icon>
@@ -599,9 +662,9 @@ watch(watershedIds, () => {
                     <span></span>
                   </div>
                   <div v-for="(point, index) in state.breakPoints" :key="index" class="break-table__row">
-                    <input :value="point[2]" type="number" @input="updateBreakPoint(index, 2, ($event.target as HTMLInputElement).value)" />
-                    <input :value="point[0]" type="number" step="0.000001" @input="updateBreakPoint(index, 0, ($event.target as HTMLInputElement).value)" />
-                    <input :value="point[1]" type="number" step="0.000001" @input="updateBreakPoint(index, 1, ($event.target as HTMLInputElement).value)" />
+                    <div class="break-table__id">{{ point[2] }}</div>
+                    <input v-model="breakPointDrafts[index].lon" type="text" inputmode="decimal" @blur="commitBreakPointDraft(index)" />
+                    <input v-model="breakPointDrafts[index].lat" type="text" inputmode="decimal" @blur="commitBreakPointDraft(index)" />
                     <button type="button" @click="removeBreakPoint(index)">删除</button>
                   </div>
                 </div>
@@ -620,7 +683,7 @@ watch(watershedIds, () => {
               <div class="panel-header">
                 <p class="panel-eyebrow">POST /api/watershed/step2</p>
                 <h2>流域合并 / 删除</h2>
-                <p class="panel-copy">先选择操作方式，再勾选或输入目标子流域 ID，提交后会直接刷新本轮结果。</p>
+                <p class="panel-copy">先选择操作方式，再勾选或输入目标子流域 ID。若本轮无需人工合并或删除，直接提交即可沿用步骤三结果。</p>
               </div>
 
               <div class="mode-switch panel-soft-card">
@@ -1115,10 +1178,25 @@ watch(watershedIds, () => {
   font-weight: 800;
 }
 
+.break-table__id {
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid rgba(155, 231, 255, 0.18);
+  background: rgba(10, 28, 44, 0.88);
+  color: #eefbff;
+  font-weight: 700;
+}
+
 .break-table button {
   min-height: 38px;
   background: rgba(255, 122, 122, 0.14);
   color: #ffc4c4;
+}
+
+.native-file-input {
+  display: none;
 }
 
 .action-stack {

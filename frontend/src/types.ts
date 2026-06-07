@@ -227,6 +227,23 @@ export interface WatershedThresholdPayload {
   cell_size_y?: number
 }
 
+export interface WatershedDefaultsResponse {
+  success: boolean
+  dem_path: string
+}
+
+export type WatershedLocalFileKind = 'dem' | 'boundary'
+
+export interface WatershedLocalFilePayload {
+  kind: WatershedLocalFileKind
+}
+
+export interface WatershedLocalFileResponse {
+  success: boolean
+  cancelled?: boolean
+  path: string
+}
+
 export interface WatershedThresholdResponse {
   success: boolean
   message?: string
@@ -336,3 +353,10 @@ export interface WatershedBoundaryGenerateData {
 }
 
 export type WatershedBoundaryGenerateResponse = ApiResponse<WatershedBoundaryGenerateData>
+
+export interface WatershedBoundaryDefaultsData {
+  dem_path: string
+  snap_threshold: number
+}
+
+export type WatershedBoundaryDefaultsResponse = ApiResponse<WatershedBoundaryDefaultsData>

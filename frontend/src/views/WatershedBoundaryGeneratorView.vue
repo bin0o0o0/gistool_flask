@@ -1,22 +1,20 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
-import { Download, Location, UploadFilled } from '@element-plus/icons-vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { Download, Location } from '@element-plus/icons-vue'
 
 import SiteNav from '@/components/SiteNav.vue'
 import WatershedBoundaryPreviewMap from '@/components/WatershedBoundaryPreviewMap.vue'
 import { getApiErrorMessage } from '@/api/client'
-import { uploadsApi } from '@/api/uploads'
 import { watershedBoundaryApi } from '@/api/watershedBoundary'
 import heroBackground from '@/assets/home-water-basin-bg.png'
 import type {
   GeoJsonFeatureCollection,
-  UploadResult,
   WatershedBoundaryBbox,
   WatershedBoundaryGenerateData,
   WatershedBoundaryPoint
 } from '@/types'
 
-const DEFAULT_DEM_PATH = 'D:\\work\\2026\\code\\data\\data\\dem\\dem.tif'
+const DEFAULT_DEM_PATH = 'D:\\work\\data\\data\\dem\\dem.tif'
 const DEFAULT_SNAP_THRESHOLD = 2000
 
 const state = reactive({
@@ -30,7 +28,6 @@ const state = reactive({
   snapThreshold: String(DEFAULT_SNAP_THRESHOLD)
 })
 
-const demUpload = ref<UploadResult | null>(null)
 const isSubmitting = ref(false)
 const successMessage = ref('')
 const errorMessage = ref('')
@@ -50,6 +47,17 @@ const previewBbox = computed<WatershedBoundaryBbox>(() => ({
 
 const mapResult = computed<GeoJsonFeatureCollection | null>(() => resultData.value?.result || null)
 
+onMounted(async () => {
+  try {
+    const response = await watershedBoundaryApi.getDefaults()
+    if (!response.data.success || !response.data.data) return
+    state.demPath = response.data.data.dem_path || DEFAULT_DEM_PATH
+    state.snapThreshold = String(response.data.data.snap_threshold || DEFAULT_SNAP_THRESHOLD)
+  } catch {
+    // Keep the local fallback defaults when the service-specific defaults API is unavailable.
+  }
+})
+
 function clearNotice() {
   successMessage.value = ''
   errorMessage.value = ''
@@ -63,8 +71,8 @@ function parseNumber(value: string, label: string) {
 
 function buildPayload() {
   const point = {
-    x: parseNumber(state.pointX, '目标点经度'),
-    y: parseNumber(state.pointY, '目标点纬度')
+    x: parseNumber(state.pointX, '流域出口经度'),
+    y: parseNumber(state.pointY, '流域出口纬度')
   }
   const bbox = {
     min_x: parseNumber(state.minX, '左上角经度'),
@@ -81,24 +89,6 @@ function buildPayload() {
     point,
     bbox,
     snap_threshold: Math.round(parseNumber(state.snapThreshold, '吸附阈值'))
-  }
-}
-
-async function uploadDem(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file) return
-
-  clearNotice()
-  try {
-    const response = await uploadsApi.upload(file, 'dem')
-    if (!response.data.success || !response.data.data) throw new Error(response.data.message || 'DEM 上传失败')
-    demUpload.value = response.data.data
-    state.demPath = response.data.data.path
-    successMessage.value = 'DEM 已上传，后续生成会直接使用新的服务端路径。'
-  } catch (error) {
-    errorMessage.value = getApiErrorMessage(error)
   }
 }
 
@@ -139,8 +129,8 @@ function downloadGeoJson() {
           <p class="boundary-hero__kicker">Point To Basin Boundary</p>
           <h1>生成流域边界</h1>
           <p>
-            输入目标点坐标和矩形范围，调用后端生成裁切后的流域边界 GeoJSON。默认使用
-            <code>{{ DEFAULT_DEM_PATH }}</code>，也可以上传 DEM 覆盖。
+            输入流域出口坐标和矩形范围，调用后端生成裁切后的流域边界 GeoJSON。默认使用
+            <code>{{ DEFAULT_DEM_PATH }}</code>。当前仅支持本机绝对路径模式，不再复制 DEM 副本。
           </p>
         </div>
       </section>
@@ -154,7 +144,7 @@ function downloadGeoJson() {
                 <h2>生成参数</h2>
               </div>
               <div class="control-panel__chips">
-                <span class="status-chip">{{ demUpload ? '已上传 DEM' : '默认 DEM' }}</span>
+                <span class="status-chip">本机 DEM 路径</span>
                 <span class="status-chip">{{ resultData ? '结果已就绪' : '等待生成' }}</span>
               </div>
             </div>
@@ -162,27 +152,28 @@ function downloadGeoJson() {
             <section class="compact-section">
               <div class="section-head">
                 <strong>DEM 设置</strong>
-                <label class="secondary-action secondary-action--compact upload-button">
-                  <el-icon aria-hidden="true"><UploadFilled /></el-icon>
-                  <span>上传覆盖</span>
-                  <input type="file" accept=".tif,.tiff" @change="uploadDem" />
-                </label>
               </div>
-              <div class="path-chip">{{ state.demPath }}</div>
+              <label class="field">
+                <span>DEM 路径</span>
+                <input v-model="state.demPath" type="text" spellcheck="false" />
+              </label>
+              <div class="path-chip path-chip--helper">
+                本地化部署推荐直接填写本机绝对路径，例如 <code>{{ DEFAULT_DEM_PATH }}</code>。生成时后端会直接读取这个路径，不再复制文件到 uploads 目录。
+              </div>
             </section>
 
             <section class="compact-section">
               <div class="section-stack">
-                <strong>目标点</strong>
+                <strong>流域出口</strong>
                 <small>经纬度</small>
               </div>
               <div class="field-grid field-grid--two">
                 <label class="field">
-                  <span>目标点经度</span>
+                  <span>流域出口经度</span>
                   <input v-model="state.pointX" type="text" inputmode="decimal" />
                 </label>
                 <label class="field">
-                  <span>目标点纬度</span>
+                  <span>流域出口纬度</span>
                   <input v-model="state.pointY" type="text" inputmode="decimal" />
                 </label>
               </div>
@@ -330,6 +321,13 @@ function downloadGeoJson() {
   overflow-wrap: anywhere;
 }
 
+.path-chip--helper {
+  color: rgba(230, 244, 250, 0.74);
+  font-family: inherit;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
 .field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -407,15 +405,6 @@ function downloadGeoJson() {
 .secondary-action:disabled {
   cursor: not-allowed;
   opacity: 0.55;
-}
-
-.upload-button input {
-  display: none;
-}
-
-.secondary-action--compact {
-  min-height: 38px;
-  padding: 0 14px;
 }
 
 .notice {

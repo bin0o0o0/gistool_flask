@@ -46,10 +46,6 @@ onMounted(() => {
         </aside>
       </section>
 
-      <footer class="workspace-footer-note">
-        <span class="workspace-footer-note__icon">i</span>
-        <span>提示：建议先预览版式，确认无误后再生成正式成果。</span>
-      </footer>
     </main>
   </div>
 </template>
@@ -167,30 +163,6 @@ onMounted(() => {
 .workspace-control-card :deep(.el-switch__core),
 .workspace-control-card :deep(.el-slider__runway) {
   background: rgba(255, 255, 255, 0.12);
-}
-
-.workspace-footer-note {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  width: 100%;
-  margin-top: 14px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(168, 247, 255, 0.12);
-  color: rgba(230, 244, 250, 0.76);
-  font-size: 0.96rem;
-}
-
-.workspace-footer-note__icon {
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border: 1px solid rgba(230, 244, 250, 0.42);
-  border-radius: 50%;
-  font-size: 0.74rem;
-  font-weight: 800;
 }
 
 @media (max-width: 1180px) {

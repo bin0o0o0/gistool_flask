@@ -208,7 +208,7 @@ watch(
       </div>
       <div class="legend-row">
         <span class="legend-swatch legend-swatch--point"></span>
-        <span>目标点</span>
+        <span>流域出口</span>
       </div>
     </div>
 

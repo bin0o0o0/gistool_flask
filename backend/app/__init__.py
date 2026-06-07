@@ -101,6 +101,7 @@ def _register_blueprints(app) -> None:
     app.register_blueprint(render_bp, url_prefix="/api/render")
     app.register_blueprint(uploads_bp, url_prefix="/api/uploads")
     app.register_blueprint(uploads_bp, url_prefix="/api/watershed/uploads", name_prefix="watershed")
+    app.register_blueprint(uploads_bp, url_prefix="/api/watershed-boundary/uploads", name_prefix="watershed_boundary")
     app.register_blueprint(watershed_bp, url_prefix="/api/watershed")
     app.register_blueprint(watershed_boundary_bp, url_prefix="/api/watershed-boundary")
 

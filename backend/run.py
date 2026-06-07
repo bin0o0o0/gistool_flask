@@ -12,10 +12,20 @@ defaults to render, because port 5000 is the safest default for map output.
 from __future__ import annotations
 
 import os
+import sys
 
 from app import create_app
 from app.core.service_mode import SERVICE_MODE_RENDER, normalize_service_mode, service_port
 
+
+def _ensure_utf8_stdio() -> None:
+    """Avoid Windows GBK stdout/stderr crashes when GIS logs contain symbols like km²."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
+_ensure_utf8_stdio()
 
 app = create_app({"SERVICE_MODE": os.getenv("GIS_TOOL_SERVICE", "all")})
 

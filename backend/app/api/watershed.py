@@ -25,6 +25,18 @@ class WatershedValidationError(ValueError):
     """Raised when a watershed request payload is invalid."""
 
 
+@watershed_bp.get("/defaults")
+def get_watershed_defaults():
+    """Expose watershed extraction defaults to the local frontend."""
+    config = current_app.extensions["app_config"]
+    return jsonify(
+        {
+            "success": True,
+            "dem_path": str(config.watershed_default_dem_path),
+        }
+    )
+
+
 @watershed_bp.post("/acc_threshold")
 def calculate_acc_threshold():
     """Calculate the default accumulation area threshold."""
@@ -199,6 +211,25 @@ def validate_plan_name():
     return jsonify({"success": True, "exists": exists, "message": message})
 
 
+@watershed_bp.post("/select-local-file")
+def select_local_file():
+    """Open a native file dialog on the local backend machine and return the selected path."""
+    try:
+        payload = _json_payload()
+        kind = str(payload.get("kind") or "").strip()
+        if kind not in {"dem", "boundary"}:
+            raise WatershedValidationError("kind must be one of: dem, boundary")
+        selected_path = _open_native_file_dialog(kind)
+    except WatershedValidationError as exc:
+        return error_response(str(exc), 400)
+    except Exception as exc:
+        return error_response(str(exc), 500)
+
+    if not selected_path:
+        return jsonify({"success": False, "cancelled": True, "path": ""})
+    return jsonify({"success": True, "cancelled": False, "path": selected_path})
+
+
 def _json_payload() -> dict[str, Any]:
     if not request.is_json:
         raise WatershedValidationError("Expected JSON request body.")
@@ -239,6 +270,36 @@ def _plan_name(payload: dict[str, Any]) -> str:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return "方案1"
+
+
+def _open_native_file_dialog(kind: str) -> str:
+    """Use the local desktop file picker so the app can receive a real absolute path."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as exc:  # pragma: no cover - depends on host Python build.
+        raise WatershedValidationError(f"Native file dialog is unavailable: {exc}") from exc
+
+    if kind == "dem":
+        title = "选择 DEM 文件"
+        filetypes = [("GeoTIFF DEM", "*.tif *.tiff"), ("All files", "*.*")]
+    else:
+        title = "选择流域边界文件"
+        filetypes = [
+            ("Vector data", "*.geojson *.json *.kml *.zip *.shp"),
+            ("GeoJSON", "*.geojson *.json"),
+            ("Shapefile", "*.shp"),
+            ("All files", "*.*"),
+        ]
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        selected = filedialog.askopenfilename(title=title, filetypes=filetypes)
+    finally:
+        root.destroy()
+    return str(Path(selected)) if selected else ""
 
 
 def _preview_geo_layer(path_value: str, entity_type: str = "polygon") -> dict[str, Any]:

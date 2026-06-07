@@ -109,7 +109,14 @@ def snap_point_to_stream(x, y, identified_streams, grid, search_radius=10):
 
 
 # 定义添加倾泻点到break_point.geojson文件的函数
-def add_break_point(x, y, point_id=None):
+def _coerce_break_point_id(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def add_break_point(x, y, point_id=None, filename="break_point.geojson"):
     """
     将指定的倾泻点坐标添加到break_point.geojson文件中
 
@@ -123,8 +130,6 @@ def add_break_point(x, y, point_id=None):
     """
 
     # 文件名
-    filename = "break_point.geojson"
-
     # 如果文件不存在，创建一个空的FeatureCollection
     if not os.path.exists(filename):
         data = {"type": "FeatureCollection", "features": []}
@@ -141,10 +146,13 @@ def add_break_point(x, y, point_id=None):
         # 如果文件损坏或不存在，创建新的结构
         data = {"type": "FeatureCollection", "features": []}
 
-    # 检查坐标是否已存在
+    # 检查相同坐标 + 相同 id 是否已存在。
+    # 同坐标但不同 id 需要允许共存：id=1 是总出口，id>=2 是人工追加控制点。
     coordinates = [float(x), float(y)]
+    normalized_point_id = _coerce_break_point_id(point_id)
     for feature in data["features"]:
-        if feature["geometry"]["coordinates"] == coordinates:
+        feature_id = _coerce_break_point_id(feature.get("properties", {}).get("id"))
+        if feature["geometry"]["coordinates"] == coordinates and feature_id == normalized_point_id:
             print(f"坐标 ({x}, {y}) 已存在于 {filename} 文件中，跳过添加")
             return False
 
@@ -153,10 +161,12 @@ def add_break_point(x, y, point_id=None):
         # 为新点分配正确的ID
         max_id = 0
         for feature in data["features"]:
-            feature_id = feature.get("properties", {}).get("id", 0)
+            feature_id = _coerce_break_point_id(feature.get("properties", {}).get("id", 0))
             if isinstance(feature_id, int):
                 max_id = max(max_id, feature_id)
         point_id = max_id + 1
+
+    point_id = _coerce_break_point_id(point_id)
 
     # 创建点特征
     point_feature = {
@@ -173,6 +183,90 @@ def add_break_point(x, y, point_id=None):
         json.dump(data, f, ensure_ascii=False)
 
     print(f"已将坐标 ({x}, {y}) 添加到 {filename} 文件中，ID: {point_id}")
+    return True
+
+
+def normalize_user_break_points(control_points):
+    """
+    将用户新增控制点规范化为“追加点”列表。
+
+    break_point.geojson 里的 id=1 始终保留给总出口点，
+    所以前端传入的额外控制点统一从 2 开始顺延编号。
+    """
+
+    normalized_points = []
+    next_id = 2
+
+    for point in control_points or []:
+        if not point or len(point) < 2:
+            continue
+        normalized_points.append((float(point[0]), float(point[1]), next_id))
+        next_id += 1
+
+    return normalized_points
+
+
+def replace_user_break_points(control_points, filename="break_point.geojson"):
+    """
+    保留算法生成的总出口点(id=1)，并把本轮用户控制点追加为 id=2, id=3...
+    """
+
+    if os.path.exists(filename):
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            data = {"type": "FeatureCollection", "features": []}
+    else:
+        data = {"type": "FeatureCollection", "features": []}
+
+    # 保留 id=1 的总出口点
+    outlet_features = []
+    for feature in data.get("features", []):
+        if _coerce_break_point_id(feature.get("properties", {}).get("id")) == 1:
+            feature.setdefault("properties", {})["id"] = 1
+            outlet_features.append(feature)
+
+    all_features = outlet_features
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump({"type": "FeatureCollection", "features": all_features}, f, ensure_ascii=False)
+
+    normalized_points = []
+    next_id = 2
+    for point in control_points or []:
+        if not point or len(point) < 2:
+            continue
+        normalized_points.append((float(point[0]), float(point[1]), next_id))
+        next_id += 1
+
+    for x, y, point_id in normalized_points:
+        add_break_point(x, y, point_id=point_id, filename=filename)
+
+    return normalized_points
+
+
+def ensure_primary_outlet_point(x, y, filename="break_point.geojson"):
+    """
+    确保 break_point.geojson 中始终存在 id=1 的总出口点。
+    """
+
+    if x is None or y is None:
+        return False
+
+    if os.path.exists(filename):
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            data = {"type": "FeatureCollection", "features": []}
+    else:
+        data = {"type": "FeatureCollection", "features": []}
+
+    for feature in data.get("features", []):
+        if _coerce_break_point_id(feature.get("properties", {}).get("id")) == 1:
+            return False
+
+    add_break_point(x, y, point_id=1, filename=filename)
     return True
 
 
@@ -2935,11 +3029,7 @@ class Generate_subwatersheds:
         os.makedirs(buffered_boundary_ori_geojson, exist_ok=True)
 
         self.start_time = time.time()
-        if control_points and len(control_points) > 0:
-            first_point = control_points[0]
-            self.xy = (first_point[0], first_point[1])  # 使用第一个控制点的坐标
-        else:
-            self.xy = xy  # 使用传入的xy参数或默认值(None, None)
+        self.xy = xy  # 总出口仍由算法自动选取，或使用显式传入的 xy
         self.area_threshold = area_threshold
         self.shapefile_path = shapefile_path  # 添加这一行
         self.s_geojson = s_geojson
@@ -2966,14 +3056,11 @@ class Generate_subwatersheds:
             self.state_dir, "identified_streams.tif"
         )
 
-        # 初始化控制点
-        self.control_points = control_points if control_points is not None else []
+        # 用户控制点是追加点，不应覆盖算法生成的总出口点(id=1)
+        self.control_points = normalize_user_break_points(control_points)
         if step == 1:
             # 初始化空的geojson文件
             self._initialize_geojson_files()
-
-        # 添加控制点到break_point.geojson
-        self._add_control_points()
 
     def random_folder_name_r(self):
 
@@ -3013,7 +3100,8 @@ class Generate_subwatersheds:
         """
         添加控制点到break_point.geojson文件
         控制点格式: [(x1, y1, id1), (x2, y2, id2), ...]
-        第一个点(id=1)被视为流域总出口
+        注意：id=1 保留给算法生成的流域总出口，
+        这里的控制点仅表示额外追加的人工控制点。
         """
         # 如果没有提供控制点，直接返回
         if not self.control_points:
@@ -3101,15 +3189,6 @@ class Generate_subwatersheds:
 
             # 完全替换列表（解决引用问题）
             self.control_points = new_control_points
-            first_point = self.control_points[0]
-            self.xy = (first_point[0], first_point[1])  # 使用第一个控制点的坐标
-            print(self.xy,self.control_points[0])
-        # 重新生成 break_point.geojson
-        with open("break_point.geojson", "w", encoding="utf-8") as f:
-            json.dump({"type": "FeatureCollection", "features": []}, f)
-
-        for point in self.control_points:
-            add_break_point(point[0], point[1], point_id=point[2])
 
 
 
@@ -3128,6 +3207,8 @@ class Generate_subwatersheds:
         )
 
         self.xy = (pour_point_x, pour_point_y)
+        ensure_primary_outlet_point(self.xy[0], self.xy[1])
+        self.control_points = replace_user_break_points(self.control_points)
 
         print("Step 1 completed.")
 
@@ -3196,6 +3277,7 @@ class Generate_subwatersheds:
         print("Step 3: Generating sub-watersheds...")
 
         # Use existing function to process watershed analysis
+        ensure_primary_outlet_point(x, y)
 
         self.downstream_dict, self.river_info = process_watershed_analysis(
             grid,
@@ -3233,6 +3315,7 @@ class Generate_subwatersheds:
         print("Generating final outputs...")
 
         # 将生成的文件移动到目录
+        ensure_primary_outlet_point(self.xy[0], self.xy[1])
         merge_point_geojson()
         random_folder_name = self.random_folder_name
         move_files_to_output_ori(random_folder_name)

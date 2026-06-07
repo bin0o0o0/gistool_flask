@@ -59,6 +59,18 @@ def generate_watershed_boundary():
     )
 
 
+@watershed_boundary_bp.get("/defaults")
+def get_watershed_boundary_defaults():
+    """Expose boundary-generator defaults to the frontend."""
+    config = current_app.extensions["app_config"]
+    return success_response(
+        {
+            "dem_path": str(config.watershed_default_dem_path),
+            "snap_threshold": DEFAULT_SNAP_THRESHOLD,
+        }
+    )
+
+
 def _json_payload() -> dict[str, Any]:
     if not request.is_json:
         raise WatershedBoundaryValidationError("Expected JSON request body.")

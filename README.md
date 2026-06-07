@@ -1,28 +1,62 @@
-# GIS Flask Study Backend
+# ArcGIS Pro快速出流域图工具
 
 这是一个简化后的快速出图 Web App。它简化了繁杂且缓慢的 ArcGIS Pro 操作步骤，方便水文水利行业工作者在编制报告时快速生成流域效果图。可能在配置环境会有一点点复杂（没办法，要怪就怪arcgis），但是可以用claude code或者codex等工具就简单啦，刷会儿抖音等一下就行了。后续会继续优化，敬请期待。
 
 前提准备：
 
 1. ArcGIS Pro 3.0.1 及以上，最好用python3.9。
-2. ArcGIS Pro 的 `.aprx` 模板文件，也就是工程文件。需要提前在工程中创建好地图和布局（预制菜），因为 ArcGIS Pro 3.0 版本的 ArcPy 没有生成地图和布局的能力。
+2. ArcGIS Pro 的 `.aprx` 模板文件，也就是工程文件。需要提前在工程中创建好地图、布局、标题、图例、指南针、比例尺（预制菜），因为 ArcGIS Pro 3.0 版本的 ArcPy 没有生成地图和布局的能力，只能根据已有的模板来更改。
 
    ![aprx_1](docs/readme-assets/aprx_1.png)
-   ![aprx_2](docs/readme-assets/aprx_2.png)
+   ![aprx_3](docs/readme-assets/工程模板文件.png)
 3. 流域边界、河流、站点 Excel 文件。
 
+用这个项目你能得到什么：
+
+1. “生成流域边界”：快速输出流域边界文件。
+2. “流域提取”：依据用户需求（调整累积流阈值，合并/删除子流域）提取不同疏密程度的子流域边界、河流水系的geojson文件。
+3. “流域出图”：快速gis出图，自定义点样式。直接得到.png文件，同时输出对应的arcgis pro的`.aprx`工程文件，方便更自由化的调整。
+
 为什么要用这个web app而不直接用arcgis pro：
+
 1. 速度更快，操作方便，小白也能轻松上手，在上面数据准备好的情况下，出图仅几秒。
 2. 可以任意调节每个点的形状样式、大小，甚至可以旋转（水文中经常需要将站点旋转到垂直于河流方向）
-  ![points](docs/readme-assets/points.png)
 3. 自由程度高。output中还有更改后的.aprx文件，更改全程在.aprx工程副本中，出结果后可以再用arcgis pro对结果进行一些微调。
-
 
 ## 快速使用 Web App
 
-这个项目现在包含三个并列功能：流域出图、流域提取、生成流域边界。前端统一运行在 `5173`，后端按功能固定拆成 `5000/5001/5002` 三个进程，避免 ArcGIS Pro Python 和普通 GIS Python 依赖互相冲突。
+这个项目现在包含三个并列功能：生成流域边界——流域提取——流域出图、。前端统一运行在 `5173`，后端按功能固定拆成 `5000/5001/5002` 三个进程，避免 ArcGIS Pro Python 和普通 GIS Python 依赖互相冲突。
 
-![Web App 工作台首页](docs/readme-assets/webapp-home.png)
+### 0.功能说明
+
+一、生成流域边界：
+
+1. 输入DEM数据。
+2. 输入流域出口的经纬度。
+3. 矩形范围要把流域框进去，为了处理的更快，要是直接分析整个DEM计算量太大，容易崩溃。
+4. 吸附阈值：流域出口不容易点到河道上，这个是吸附的范围。
+
+![option1](docs/readme-assets/生成流域边界.png)
+
+二、流域提取
+
+1. 上传基础数据：上传DEM和上一步生成的流域边界文件（已经有流域边界文件可以直接来这一步上传，支持.shp 组件、.geojson、.kml、.zip等文件格式）
+2. 初始化流域：这里系统会输出一个较粗的默认阈值，可以直接用，也可以改一下（取决于你希望的河流疏密程度），面积阈值越小水系约密、子流域越多。
+3. 生成流域：控制点是用户自定义的子流域出口（一般是水位站、水文站所在位置），一定在河道上。输入之后系统会根据这个控制点生成一个子流域。
+4. 合并/删除：有些流域可以一起考虑它的流域特征，这时候就需要合并或删除。
+5. 最终输出的流域水系和流域边界文件在gistool\docs\program路径下。
+
+![option2](docs/readme-assets/流域提取.png)
+
+三、流域出图
+
+1. 数据准备：模板文件我做了一版放到了`backend\templates\gistool_test\gistool_test.aprx`这个路径中；上传上一步流域提取生成的sub_catchment.geojson（流域边界）和river_network_linestrings.geojson（水系）文件。
+2. 图层配置：设置样式的颜色透明度等
+3. 标注样式与位置：上传点的坐标EXCEL文件，这个每一个StationLayer层代表了一个图例类（比如说水位站、雨量站两类），可以对图层中每个点进行调整形状、大小、颜色、旋转度数、标注位置、标注字号等。
+4. 标注属性：设置标注在图例中的各种属性。
+5. 到处结果：导出设置图的打印格式；人工布局坐标自定义图框的属性（XY代表位置、高宽代表尺寸）；标题的位置高宽；图例 / 比例尺 / 指北针的位置高宽；出图的视角调整。
+
+![option3](docs/readme-assets/流域出图.png)
 
 ### 1.最短部署路径
 
@@ -70,12 +104,13 @@ cd D:\work\2026\code\life\gis_flask_study
 
 默认端口固定为：
 
-| 端口 | 功能 | Python 环境 |
-| --- | --- | --- |
-| `5000` | 流域出图 `/map-output` | ArcGIS Pro Python / `propy.bat` |
-| `5001` | 流域提取 `/watershed-extract` | 普通 GIS Python |
-| `5002` | 生成流域边界 `/watershed-boundary-generator` | 普通 GIS Python |
-| `5173` | Vite 前端 | Node.js |
+
+| 端口   | 功能                                        | Python 环境                    |
+| ------ | ------------------------------------------- | ------------------------------ |
+| `5000` | 流域出图`/map-output`                       | ArcGIS Pro Python /`propy.bat` |
+| `5001` | 流域提取`/watershed-extract`                | 普通 GIS Python                |
+| `5002` | 生成流域边界`/watershed-boundary-generator` | 普通 GIS Python                |
+| `5173` | Vite 前端                                   | Node.js                        |
 
 如果 ArcGIS Pro 或普通 GIS Python 不在默认路径，启动时传入路径：
 
@@ -152,18 +187,20 @@ npm run dev -- --host 0.0.0.0 --port 5173
 
 最小必需字段：
 
-| 字段 | 作用 | 示例 |
-| --- | --- | --- |
+
+| 字段   | 作用                                 | 示例            |
+| ------ | ------------------------------------ | --------------- |
 | `name` | 点位名称，用于页面点位清单和标注字段 | `Station Alpha` |
-| `lon` | 经度字段，上传后在“经度字段”里选择 | `116.18` |
-| `lat` | 纬度字段，上传后在“纬度字段”里选择 | `39.18` |
+| `lon`  | 经度字段，上传后在“经度字段”里选择 | `116.18`        |
+| `lat`  | 纬度字段，上传后在“纬度字段”里选择 | `39.18`         |
 
 可选字段：
 
-| 字段 | 作用 |
-| --- | --- |
+
+| 字段    | 作用                                       |
+| ------- | ------------------------------------------ |
 | `alias` | 可作为“名称字段”切换显示，方便同名点区分 |
-| `note` | 备注，不参与出图，可用于记录行号或说明 |
+| `note`  | 备注，不参与出图，可用于记录行号或说明     |
 
 识别规则：
 
@@ -257,15 +294,16 @@ tests/
 
 ## 接口速查
 
-| 接口 | 作用 |
-| --- | --- |
-| `GET /api/health` | 检查对应后端是否启动 |
-| `GET /api/render-options` | 返回流域出图可选样式 |
-| `POST /api/uploads` | 上传模板、边界、河流、站点文件 |
-| `POST /api/render` | 生成流域专题图 |
-| `GET /api/render/file` | 预览生成的 `map.png` |
-| `POST /api/watershed/*` | 流域提取相关步骤 |
-| `POST /api/watershed-boundary/*` | 生成流域边界 |
+
+| 接口                             | 作用                           |
+| -------------------------------- | ------------------------------ |
+| `GET /api/health`                | 检查对应后端是否启动           |
+| `GET /api/render-options`        | 返回流域出图可选样式           |
+| `POST /api/uploads`              | 上传模板、边界、河流、站点文件 |
+| `POST /api/render`               | 生成流域专题图                 |
+| `GET /api/render/file`           | 预览生成的`map.png`            |
+| `POST /api/watershed/*`          | 流域提取相关步骤               |
+| `POST /api/watershed-boundary/*` | 生成流域边界                   |
 
 `POST /api/render` 的请求体可以直接在页面“请求体预览”里查看。成功后输出目录通常包含：
 
@@ -293,12 +331,13 @@ North arrow element: 指北针
 
 ## 端口、代理和默认路径
 
-| 功能 | 页面 | API 前缀 | 端口 |
-| --- | --- | --- | --- |
-| 流域出图 | `/map-output` | `/api/render`, `/api/uploads`, `/api/render-options` | `5000` |
-| 流域提取 | `/watershed-extract` | `/api/watershed` | `5001` |
-| 生成流域边界 | `/watershed-boundary-generator` | `/api/watershed-boundary` | `5002` |
-| 前端 | `/` | Vite | `5173` |
+
+| 功能         | 页面                            | API 前缀                                             | 端口   |
+| ------------ | ------------------------------- | ---------------------------------------------------- | ------ |
+| 流域出图     | `/map-output`                   | `/api/render`, `/api/uploads`, `/api/render-options` | `5000` |
+| 流域提取     | `/watershed-extract`            | `/api/watershed`                                     | `5001` |
+| 生成流域边界 | `/watershed-boundary-generator` | `/api/watershed-boundary`                            | `5002` |
+| 前端         | `/`                             | Vite                                                 | `5173` |
 
 `frontend/vite.config.ts` 的代理顺序必须是：
 

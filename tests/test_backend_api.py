@@ -925,6 +925,34 @@ def test_watershed_acc_threshold_returns_default_area_and_folder(tmp_path):
     assert FakeWatershedService.instances[0].kwargs["plan_name"] == "方案1"
 
 
+def test_watershed_defaults_exposes_default_dem_path(tmp_path):
+    """GET /api/watershed/defaults should expose the configured default DEM path."""
+    app = _watershed_test_app(tmp_path)
+
+    response = app.test_client().get("/api/watershed/defaults")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["dem_path"] == str(Path(app.config["WATERSHED_DEFAULT_DEM_PATH"]))
+
+
+def test_watershed_select_local_file_returns_native_dialog_path(tmp_path, monkeypatch):
+    """POST /api/watershed/select-local-file should return the native picker path unchanged."""
+    app = _watershed_test_app(tmp_path)
+    selected_path = r"D:\other\terrain\selected-dem.tif"
+
+    monkeypatch.setattr("app.api.watershed._open_native_file_dialog", lambda kind: selected_path)
+
+    response = app.test_client().post("/api/watershed/select-local-file", json={"kind": "dem"})
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["cancelled"] is False
+    assert payload["path"] == selected_path
+
+
 def test_watershed_step0_requires_threshold_and_folder(tmp_path):
     """POST /api/watershed/step0_streams should fail fast when inherited state is missing."""
     dem_path = tmp_path / "dem.tif"
@@ -1137,6 +1165,19 @@ def test_watershed_boundary_generate_uses_default_dem_and_clips_to_bbox(tmp_path
     assert max(ys) == 27.1
 
 
+def test_watershed_boundary_defaults_exposes_service_dem_path(tmp_path):
+    """GET /api/watershed-boundary/defaults should return the service default DEM path and snap threshold."""
+    app = _watershed_test_app(tmp_path)
+
+    response = app.test_client().get("/api/watershed-boundary/defaults")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["data"]["dem_path"] == str(Path(app.config["WATERSHED_DEFAULT_DEM_PATH"]))
+    assert payload["data"]["snap_threshold"] == 2000
+
+
 def test_watershed_boundary_clip_dem_to_bbox_returns_smaller_raster(tmp_path):
     """The bbox clip helper should write a smaller temporary raster for downstream analysis."""
     import numpy as np
@@ -1259,6 +1300,37 @@ def test_watershed_step2_rejects_invalid_operation(tmp_path):
     assert response.status_code == 400
     assert response.get_json()["success"] is False
     assert "operation" in response.get_json()["message"]
+
+
+def test_watershed_boundary_upload_endpoint_saves_dem_tif(tmp_path):
+    """Watershed-boundary uploads should be available under /api/watershed-boundary/uploads."""
+    from app import create_app
+
+    app = create_app(
+        {
+            "TESTING": True,
+            "OUTPUT_FOLDER": str(tmp_path / "outputs"),
+            "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+            "RENDERER": FakeRenderer(),
+        }
+    )
+
+    response = app.test_client().post(
+        "/api/watershed-boundary/uploads",
+        data={
+            "kind": "dem",
+            "file": (io.BytesIO(b"fake-tif"), "dem.tif"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    data = body["data"]
+    assert data["kind"] == "dem"
+    assert data["suffix"] == ".tif"
+    assert Path(data["path"]).exists()
 
 
 def test_watershed_step2_returns_json_outputs(tmp_path):

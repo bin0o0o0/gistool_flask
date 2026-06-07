@@ -1,5 +1,8 @@
 import api from './client'
 import type {
+  WatershedDefaultsResponse,
+  WatershedLocalFilePayload,
+  WatershedLocalFileResponse,
   WatershedPlanNameValidationPayload,
   WatershedPlanNameValidationResponse,
   WatershedPreviewPayload,
@@ -15,6 +18,14 @@ import type {
 } from '@/types'
 
 export const watershedApi = {
+  defaults() {
+    return api.get<WatershedDefaultsResponse>('/api/watershed/defaults')
+  },
+
+  selectLocalFile(payload: WatershedLocalFilePayload) {
+    return api.post<WatershedLocalFileResponse>('/api/watershed/select-local-file', payload)
+  },
+
   calculateThreshold(payload: WatershedThresholdPayload) {
     return api.post<WatershedThresholdResponse>('/api/watershed/acc_threshold', payload)
   },
