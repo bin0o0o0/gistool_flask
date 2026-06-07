@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import MapOutputControlPanel from '@/components/MapOutputControlPanel.vue'
 import SiteNav from '@/components/SiteNav.vue'
@@ -10,6 +10,9 @@ import heroBackground from '@/assets/home-water-basin-bg.png'
 
 const store = useWorkspaceStore()
 const previewMode = ref<'map' | 'layout'>('map')
+const effectivePreviewMode = computed(() =>
+  previewMode.value === 'layout' || store.activeStep === 'stations-attrs' || store.activeStep === 'output' ? 'layout' : 'map'
+)
 
 onMounted(() => {
   store.fetchOptions()
@@ -29,11 +32,11 @@ onMounted(() => {
         </div>
       </section>
 
-      <section class="workspace-grid workspace-stage">
-        <WorkspaceSidebar />
+      <WorkspaceSidebar class="workspace-step-bar" />
 
+      <section class="workspace-grid workspace-stage">
         <section class="workspace-map-column">
-          <WorkspacePreviewMap :form="store.form" :render-result="store.renderResult" :layout-mode="previewMode" />
+          <WorkspacePreviewMap :form="store.form" :render-result="store.renderResult" :layout-mode="effectivePreviewMode" />
         </section>
 
         <aside class="workspace-control-column">
@@ -102,9 +105,13 @@ onMounted(() => {
   line-height: 1.72;
 }
 
+.workspace-step-bar {
+  margin-bottom: 14px;
+}
+
 .workspace-grid {
   display: grid;
-  grid-template-columns: 280px minmax(420px, 1fr) 340px;
+  grid-template-columns: 1fr 1fr;
   gap: 14px;
   align-items: start;
 }
@@ -188,12 +195,13 @@ onMounted(() => {
 
 @media (max-width: 1180px) {
   .workspace-grid {
-    grid-template-columns: 290px minmax(0, 1fr);
+    grid-template-columns: 1fr;
   }
 
+  .workspace-map-column,
   .workspace-control-column {
-    grid-column: 1 / -1;
     height: auto;
+    min-height: 520px;
   }
 }
 

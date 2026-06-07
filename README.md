@@ -4,7 +4,7 @@
 
 前提准备：
 
-1. ArcGIS Pro 3.0.1 及以上。
+1. ArcGIS Pro 3.0.1 及以上，最好用python3.9。
 2. ArcGIS Pro 的 `.aprx` 模板文件，也就是工程文件。需要提前在工程中创建好地图和布局（预制菜），因为 ArcGIS Pro 3.0 版本的 ArcPy 没有生成地图和布局的能力。
 
    ![aprx_1](docs/readme-assets/aprx_1.png)
@@ -20,56 +20,129 @@
 
 ## 快速使用 Web App
 
-这个项目现在包含一个浏览器工作台：前端负责上传数据、配置样式和提交出图；后端用 Flask 接收请求，并在同一个 ArcGIS Pro Python 进程里调用 ArcPy 导出 `map.png`。
+这个项目现在包含三个并列功能：流域出图、流域提取、生成流域边界。前端统一运行在 `5173`，后端按功能固定拆成 `5000/5001/5002` 三个进程，避免 ArcGIS Pro Python 和普通 GIS Python 依赖互相冲突。
 
 ![Web App 工作台首页](docs/readme-assets/webapp-home.png)
 
-### 1. 启动后端
+### 1.最短部署路径
 
-真实出图必须用 ArcGIS Pro Python 启动后端，因为普通 `.venv` 里没有 ArcPy：
+要准备两个 Python 运行，一个是ArcGIS Pro自带的（必须，不然不能用arcpy，不能用本项目的流域出图功能），另外的是提取流域边界和流域提取功能的python环境（最好用3.9，因为脚本统一安装环境是python3.9的），再用统一脚本一次启动。
+
+必备运行时：
+
+- ArcGIS Pro Python / `propy.bat`：只负责流域出图，因为它需要 ArcPy。
+- 普通 Python：负责流域提取和生成流域边界，需要装好 `pysheds/rasterio/shapely/geopandas` 等依赖。当前开发机示例是 `D:\python3.9.5\python.exe`，但不是硬性路径。
+- Node.js：负责启动 Vite 前端。
+
+第一次部署先安装依赖：
+因为ArcGIS Pro 自带的Python没有Flask包，所以部署时`.\scripts\setup.ps1` 会把 Flask 等普通 Python 包安装到项目自己的 `.venv`。流域出图服务启动时仍然用 ArcGIS Pro Python / `propy.bat`，因为它负责提供 ArcPy；项目代码会在启动时把 `.venv\Lib\site-packages` 加进 ArcGIS Pro Python 的搜索路径，让 ArcGIS Pro Python 也能找到 Flask。
+
+注意：当前 `setup.ps1` 用来创建项目 `.venv` 的 Python 版本固定检查为 `3.9`。这不代表三个后端都必须用 Python 3.9；它只说明这个安装脚本目前要求用 Python 3.9 来创建 `.venv`。如果电脑没有 `python3.9` 命令，可以传入完整路径：
 
 ```powershell
 cd D:\work\2026\code\life\gis_flask_study
-& "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" backend\run.py
+.\scripts\setup.ps1
 ```
-
-"D:\work\2026\code\life\gis_flask_study"这个是你github项目部署的位置，"C:\Program Files\ArcGIS\Pro\"这个是你arcgis pro下载的位置。
-如果你的电脑更习惯直接调用 ArcGIS Pro 环境里的 `python.exe`，也可以这样启动：
 
 ```powershell
-cd D:\work\2026\code\life\gis_flask_study
-& "C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe" backend\run.py
+.\scripts\setup.ps1 -PythonPath "D:\Python39\python.exe"
 ```
 
-看到下面这行就说明后端已经启动：
-
-```text
-Running on http://127.0.0.1:5000
-```
-
-可以用健康检查确认：
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5000/api/health
-```
-
-### 2. 启动前端
-
-另开一个 PowerShell 窗口：
+再安装前端依赖：
 
 ```powershell
 cd D:\work\2026\code\life\gis_flask_study\frontend
 npm install
-npm run dev
+```
+
+如果 ArcGIS Pro 不在默认位置，也可以先验证它能否从项目 `.venv` 导入 Flask：
+
+```powershell
+.\scripts\check_runtime.ps1 -PropyPath "D:\ArcGIS\Pro\bin\Python\Scripts\propy.bat"
+```
+
+然后回到项目根目录启动整套项目：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study
+.\scripts\start-dev.ps1
+```
+
+默认端口固定为：
+
+| 端口 | 功能 | Python 环境 |
+| --- | --- | --- |
+| `5000` | 流域出图 `/map-output` | ArcGIS Pro Python / `propy.bat` |
+| `5001` | 流域提取 `/watershed-extract` | 普通 GIS Python |
+| `5002` | 生成流域边界 `/watershed-boundary-generator` | 普通 GIS Python |
+| `5173` | Vite 前端 | Node.js |
+
+如果 ArcGIS Pro 或普通 GIS Python 不在默认路径，启动时传入路径：
+
+```powershell
+.\scripts\start-dev.ps1 `
+  -PropyPath "D:\ArcGIS\Pro\bin\Python\Scripts\propy.bat" `
+  -GisPythonPath "D:\Python39\python.exe"
+```
+
+启动后检查健康接口：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5000/api/health
+Invoke-RestMethod http://127.0.0.1:5001/api/health
+Invoke-RestMethod http://127.0.0.1:5002/api/health
 ```
 
 浏览器打开：
 
 ```text
-http://127.0.0.1:5173
+http://localhost:5173/
 ```
 
-Vite 已经把 `/api` 代理到 `http://127.0.0.1:5000`，所以前端页面可以直接访问本地 Flask 后端。
+常用页面：
+
+```text
+http://localhost:5173/map-output
+http://localhost:5173/watershed-extract
+http://localhost:5173/watershed-boundary-generator
+```
+
+Vite 会按接口路径分流到固定后端端口：`/api/watershed-boundary` 走 `5002`，`/api/watershed` 走 `5001`，其他 `/api` 走 `5000`。所以前端页面不需要手动改接口地址。
+
+### 2.单独启动某个后端
+
+一般开发直接用 `scripts/start-dev.ps1`。只有排查问题时，才建议单独启动。
+
+流域出图必须使用 ArcGIS Pro Python：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study
+$env:GIS_TOOL_SERVICE="render"
+& "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" backend\run.py
+```
+
+流域提取使用普通 GIS Python：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study
+$env:GIS_TOOL_SERVICE="watershed"
+& "D:\python3.9.5\python.exe" backend\run.py
+```
+
+生成流域边界使用普通 GIS Python：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study
+$env:GIS_TOOL_SERVICE="watershed-boundary"
+& "D:\python3.9.5\python.exe" backend\run.py
+```
+
+前端单独启动：
+
+```powershell
+cd D:\work\2026\code\life\gis_flask_study\frontend
+npm run dev -- --host 0.0.0.0 --port 5173
+```
 
 ### 3. 站点 Excel 标准格式
 
@@ -154,10 +227,13 @@ output/frontend_202604210009/
 
 ### 常见问题
 
-- 如果页面显示 `failed`，先打开对应输出目录里的 `result.json`，里面有真实 ArcPy 错误。
-- 修改后端代码后，需要在后端 PowerShell 窗口按 `Ctrl + C` 停止服务，再重新运行 `backend\run.py`。
-- 如果站点还是整层同一种颜色或形状，检查“请求体预览”里是否带有 `station_layers[].points`。
-- 如果边缘点或标注被裁掉，确认后端已经重启到最新代码；当前版本会把流域、河流和站点一起纳入地图范围，并自动添加 buffer。
+- 页面显示 `failed`：先看对应输出目录的 `result.json`。
+- 修改后端代码后：重启对应后端窗口，或重新执行 `.\scripts\start-dev.ps1`。
+- 站点样式没有逐点生效：检查请求体里是否有 `station_layers[].points`。
+- `/watershed-extract` 后端不可用：检查 `5001`。
+- `/watershed-boundary-generator` 后端不可用：检查 `5002`。
+- 出现 `No module named 'pysheds'`、`No module named 'rasterio'`：说明流域提取或边界生成跑到了缺依赖的 Python 环境，换成依赖齐全的普通 Python 启动 `5001/5002`。
+- 流域出图缺 Flask：先运行 `.\scripts\setup.ps1`，再运行 `.\scripts\check_runtime.ps1`。
 
 ## 项目结构
 
@@ -165,298 +241,33 @@ output/frontend_202604210009/
 backend/
   run.py
   app/
-    __init__.py
-    api/
-      health.py
-      options.py
-      render.py
-    core/
-      config.py
-      constants.py
-    gis/
-      render/
-        arcpy_renderer.py
-    utils/
-      responses.py
-tests/
-  test_backend_api.py
-  test_arcpy_renderer.py
+    api/              # Flask 接口
+    core/             # 配置和服务模式
+    gis/render/       # ArcPy 出图逻辑
 frontend/
   src/
     views/
     components/
     stores/
     api/
+tests/
+  test_backend_api.py
+  test_arcpy_renderer.py
 ```
 
-## 推荐部署方式
+## 接口速查
 
-推荐把 Flask 固定安装到项目自己的 `.venv`，然后仍然用 ArcGIS Pro 自带 Python 启动后端：
+| 接口 | 作用 |
+| --- | --- |
+| `GET /api/health` | 检查对应后端是否启动 |
+| `GET /api/render-options` | 返回流域出图可选样式 |
+| `POST /api/uploads` | 上传模板、边界、河流、站点文件 |
+| `POST /api/render` | 生成流域专题图 |
+| `GET /api/render/file` | 预览生成的 `map.png` |
+| `POST /api/watershed/*` | 流域提取相关步骤 |
+| `POST /api/watershed-boundary/*` | 生成流域边界 |
 
-```text
-项目 .venv
-  存放 Flask 等普通 Python 依赖
-
-ArcGIS Pro Python / propy.bat
-  提供 arcpy，并在启动时额外查找项目 .venv\Lib\site-packages
-```
-
-先安装项目依赖：
-
-```powershell
-.\scripts\setup.ps1
-```
-
-安装脚本固定要求 Python 3.9。默认会调用 `python3.9`，如果你的电脑没有这个命令，可以传入 Python 3.9 的完整路径：
-
-```powershell
-.\scripts\setup.ps1 -PythonPath "D:\Python39\python.exe"
-```
-
-如果默认 PyPI 网络慢或代理报错，可以改用镜像源：
-
-```powershell
-.\scripts\setup.ps1 -IndexUrl https://pypi.tuna.tsinghua.edu.cn/simple
-```
-
-再检查 ArcGIS Pro Python 能否找到项目 `.venv` 里的 Flask：
-
-```powershell
-.\scripts\check_runtime.ps1
-```
-
-如果 ArcGIS Pro 不是默认安装路径，可以通过参数或环境变量指定 `propy.bat`：
-
-```powershell
-.\scripts\check_runtime.ps1 -PropyPath "D:\ArcGIS\Pro\bin\Python\Scripts\propy.bat"
-$env:ARCGIS_PROPY="D:\ArcGIS\Pro\bin\Python\Scripts\propy.bat"
-```
-
-最后启动后端：
-
-```powershell
-& "C:\Program Files\ArcGIS\Pro\bin\Python\Scripts\propy.bat" backend\run.py
-```
-
-## 前端工作台
-
-前端位于 `frontend/`，使用 Vue 3、Vite、TypeScript、Pinia、Axios 和 Element Plus。
-页面风格借鉴 Gitee 参考项目的暖色纸张感工作台，但保留 Element Plus 的表单、上传和颜色选择器。
-
-启动后端后，再启动前端：
-
-```powershell
-cd frontend
-npm install
-npm run dev
-```
-
-开发服务器默认地址是：
-
-```text
-http://localhost:5173
-```
-
-Vite 已把 `/api` 代理到 `http://localhost:5000`，所以前端可以直接调用当前 Flask 后端。
-
-前端第一版支持：
-
-- 上传 `.aprx` 模板、流域边界、河流水系、站点 Excel。
-- Shapefile 建议打包成 `.zip` 上传。
-- 配置输出尺寸、DPI、流域边界、流域填充、河流线宽和颜色。
-- 支持一个站点 Excel 图层内逐点配置形状、颜色、大小、标注颜色、字号、位置和旋转角度。
-- 在逐点样式表格里直接预览每个点当前的符号形状和颜色。
-- 复制 `/api/render` JSON 请求体，方便继续用 Apifox 对照调试。
-- 出图成功后在页面中预览最终 `map.png`。
-
-后端默认只监听本机 `127.0.0.1:5000`，并且默认关闭 Flask debug。局域网联调时再显式设置：
-
-```powershell
-$env:FLASK_HOST="0.0.0.0"
-$env:FLASK_DEBUG="true"
-```
-
-## 通用环境部署
-
-这个后端有一个特殊点：Flask 服务和 ArcPy 必须在同一个 Python 进程里运行。因为 ArcPy 只能由 ArcGIS Pro Python 提供，所以启动时仍然使用 `propy.bat`。
-
-为了让新电脑部署更简单，项目启动时会自动把下面两个目录加入 Python 搜索路径：
-
-```text
-<项目根目录>\.venv\Lib\site-packages
-C:\Users\<用户名>\AppData\Roaming\Python\Python39\site-packages
-```
-
-也就是说，Flask 可以固定安装在项目 `.venv` 里，不需要再手动安装到 ArcGIS Pro Python 环境目录。
-
-可以用这条命令检查：
-
-```powershell
-.\scripts\check_runtime.ps1
-```
-
-如果能打印 `Flask OK`，并且 `Flask file` 位于项目 `.venv\Lib\site-packages` 下面，就可以直接启动后端。
-如果报 `ModuleNotFoundError: No module named 'flask'`，或提示 Flask 不是从项目 `.venv` 加载的，先运行：
-
-```powershell
-.\scripts\setup.ps1
-```
-
-### 为什么不直接用 .venv 启动后端
-
-不要用下面这种方式启动真实出图服务：
-
-```powershell
-.\.venv\Scripts\python.exe backend\run.py
-```
-
-原因是 `.venv` 里有 Flask，但没有 ArcPy。真实出图仍然必须由 ArcGIS Pro Python 启动。
-
-### 兼容方式：用户 site-packages
-
-项目仍然兼容用户目录 site-packages。也就是说，如果某台电脑以前已经把 Flask 安装到了当前用户目录，后端依然能找到它。不过推荐新部署时统一使用项目 `.venv`。
-
-模板工程路径不在代码里写死。推荐由前端或 Apifox 在每次请求的 `template_project` 字段里传入。
-如果某个部署环境固定使用同一个模板，也可以设置环境变量：
-
-```powershell
-$env:ARCPY_TEMPLATE_PROJECT="D:\your\template.aprx"
-$env:ARCGIS_PROPY="D:\your\ArcGIS\Pro\bin\Python\Scripts\propy.bat"
-$env:OUTPUT_FOLDER="D:\your\output"
-& $env:ARCGIS_PROPY backend\run.py
-```
-
-如果请求体没有传 `template_project`，并且也没有设置 `ARCPY_TEMPLATE_PROJECT`，`POST /api/render` 会返回 400，提示缺少模板路径。
-
-## 接口
-
-### GET /api/health
-
-检查服务是否启动，并返回当前输出目录和模板工程路径。
-
-### GET /api/render-options
-
-返回前端或 Apifox 可用的固定选项，包括底图、标注位置、站点形状和站点颜色预设。
-
-站点形状和颜色已经拆开，前端可以自由组合：
-
-```text
-station_symbol_shapes:
-circle
-triangle
-square
-diamond
-rectangle
-
-station_symbol_color_presets:
-blue
-cyan
-purple
-orange
-green
-red
-black
-```
-
-旧版 `preset` 字段仍然兼容，例如 `circle_green`、`triangle_red`，但新请求建议使用
-`shape + color_preset` 或 `shape + color`。
-
-### POST /api/render
-
-直接出图。请求体里传真实数据文件路径和相对输出目录，不再传 `file_id`。
-默认情况下，`output_dir` 必须是相对路径，例如 `"demo_001"`，后端会把结果写入 `OUTPUT_FOLDER/demo_001`。
-这样前端不能让服务器写入任意绝对目录；只有本地调试时才建议临时设置 `ALLOW_ABSOLUTE_OUTPUT_DIR=true`。
-`output.width_px`、`output.height_px` 和 `output.dpi` 会共同控制最终 PNG 的像素尺寸。
-后端会自动按模板布局单位换算页面大小，例如模板使用毫米时会把 `1600x1200@150dpi` 换算成约 `270.93mm x 203.2mm`。
-
-Apifox 示例：
-
-```json
-{
-  "output_dir": "demo_001",
-  "map_title": "示例流域水系图",
-  "output": {
-    "width_px": 1600,
-    "height_px": 1200,
-    "dpi": 150
-  },
-  "inputs": {
-    "basin_boundary": {
-      "path": "D:/data/basin.geojson"
-    },
-    "river_network": {
-      "path": "D:/data/rivers.geojson"
-    },
-    "station_layers": [
-      {
-        "path": "D:/data/green_stations.xlsx",
-        "sheet_name": "Sheet1",
-        "x_field": "lon",
-        "y_field": "lat",
-        "name_field": "name",
-        "layer_name": "GreenCircleStations",
-        "symbol": {
-          "shape": "circle",
-          "color_preset": "green",
-          "size_pt": 20
-        },
-        "label": {
-          "enabled": true,
-          "color": "#000000",
-          "font_size_pt": 20,
-          "position": "top_right",
-          "rotation_deg": 0
-        }
-      },
-      {
-        "path": "D:/data/red_stations.xlsx",
-        "sheet_name": "Sheet1",
-        "x_field": "lon",
-        "y_field": "lat",
-        "name_field": "name",
-        "layer_name": "RedTriangleStations",
-        "symbol": {
-          "shape": "triangle",
-          "color_preset": "red",
-          "size_pt": 20
-        },
-        "label": {
-          "enabled": true,
-          "color": "#000000",
-          "font_size_pt": 20,
-          "position": "top_right",
-          "rotation_deg": 0
-        }
-      }
-    ]
-  },
-  "layout": {
-    "basemap": "Topographic",
-    "legend": {
-      "enabled": true
-    },
-    "scale_bar": {
-      "enabled": true
-    }
-  },
-  "style": {
-    "basin_boundary": {
-      "color": "#222222",
-      "width_pt": 1.2
-    },
-    "basin_fill": {
-      "color": "#e6f0d4",
-      "opacity": 0.45
-    },
-    "river_network": {
-      "color": "#2f80ed",
-      "width_pt": 2.5
-    }
-  }
-}
-```
-
-成功后会在 `output_dir` 生成：
+`POST /api/render` 的请求体可以直接在页面“请求体预览”里查看。成功后输出目录通常包含：
 
 ```text
 map.png
@@ -464,59 +275,46 @@ result.json
 gistool_test.aprx
 ```
 
-### POST /api/uploads
-
-前端文件上传接口。浏览器不能可靠读取用户电脑的绝对路径，所以前端先把文件上传给后端，
-后端保存到 `uploads/` 后返回可供 `/api/render` 使用的本地路径。
-
-请求类型是 `multipart/form-data`：
-
-```text
-kind: template_project | basin_boundary | river_network | station_excel
-file: 用户选择的文件
-```
-
-返回示例：
-
-```json
-{
-  "success": true,
-  "data": {
-    "file_id": "uuid",
-    "kind": "basin_boundary",
-    "original_name": "basin.geojson",
-    "path": "D:/work/.../uploads/20260420/uuid/basin.geojson",
-    "suffix": ".geojson",
-    "size_bytes": 1234
-  }
-}
-```
-
-### GET /api/render/file
-
-前端预览最终 PNG 使用的只读接口：
-
-```text
-/api/render/file?path=<后端返回的 output_png>
-```
-
-为了避免任意文件读取，这个接口只允许读取 `OUTPUT_FOLDER` 下面的 `.png` 文件。
-
 ## 模板工程要求
 
-当前 ArcPy 渲染器会在 `.aprx` 里查找这些对象：
+`.aprx` 里推荐保留这些对象名称：
 
 ```text
 Map: 地图
 Layout: 布局
 Map Frame: 地图框
-Title text element: 标题（兼容现有模板里的“文本”）
+Title text element: 标题（兼容“文本”）
 Legend element: 图例
 Scale bar element: 比例尺
 North arrow element: 指北针
 ```
 
-图例、比例尺、指北针必须使用 ArcGIS Pro 原生布局元素，不要用普通图形或文字手动画。页面的“人工布局坐标”会把标题、图例、比例尺、指北针和地图框的 `x/y/宽/高` 原样传给后端，后端按模板布局单位写入 APRX；图例内部默认使用 `12 x 6` 的统一图样尺寸，并保留白色背景。地图视角可以选择自动范围、自动范围加四边留白，或手动输入 `xmin/ymin/xmax/ymax`。比例尺会在后端设置地图框范围后，由 ArcGIS Pro 根据最终地图框自动计算。模板中缺少任一布局元素时，出图仍会继续，缺失信息会写入 `result.json.warnings`。
+图例、比例尺、指北针建议使用 ArcGIS Pro 原生布局元素，不要用普通图形手动画。模板中缺少某些布局元素时，后端会继续出图，并把提示写入 `result.json.warnings`。
+
+## 端口、代理和默认路径
+
+| 功能 | 页面 | API 前缀 | 端口 |
+| --- | --- | --- | --- |
+| 流域出图 | `/map-output` | `/api/render`, `/api/uploads`, `/api/render-options` | `5000` |
+| 流域提取 | `/watershed-extract` | `/api/watershed` | `5001` |
+| 生成流域边界 | `/watershed-boundary-generator` | `/api/watershed-boundary` | `5002` |
+| 前端 | `/` | Vite | `5173` |
+
+`frontend/vite.config.ts` 的代理顺序必须是：
+
+```text
+/api/watershed-boundary -> 5002
+/api/watershed          -> 5001
+/api                    -> 5000
+```
+
+修改代理后必须重启 `npm run dev`。
+
+默认 DEM 路径：
+
+```text
+D:\work\2026\code\data\data\dem\dem.tif
+```
 
 ## 测试
 
@@ -526,13 +324,12 @@ North arrow element: 指北针
 python -m pytest tests -q
 ```
 
-真实 ArcPy 出图需要用 `propy.bat` 启动后端，然后用 Apifox 请求 `POST /api/render`。
+前端测试和构建：
 
-## tests 目录说明
+```powershell
+cd frontend
+npm run test
+npm run build
+```
 
-`tests/` 主要用来保护两类核心行为：
-
-- `test_backend_api.py`：测试 Flask API 层，使用 `FakeRenderer` 替代真实 `ArcPyRenderer`，确认接口能正确校验参数、传递参数并返回统一 JSON。
-- `test_arcpy_renderer.py`：测试 `ArcPyRenderer` 本身，但使用 fake `arcpy` 和一组假的 ArcGIS Pro 对象，确认渲染器对 ArcPy 的调用方式、参数、样式、标注和输出结果是否正确。
-
-这些测试能防止应用代码被改坏，但不能替代真实 ArcGIS Pro 环境验证。真正确认 ArcPy、模板工程和用户数据能跑通，仍然需要在 ArcGIS Pro Python 环境中用真实数据单独跑一次。
+真实 ArcPy 出图仍然需要启动 `5000` 后端，并用实际 `.aprx` 和数据文件验证。

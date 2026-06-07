@@ -601,9 +601,20 @@ def _float_config(value: Any, default: float) -> float:
         return default
 
 
+def _set_bottom_left_anchor(element) -> None:
+    """Make layout x/y mean the lower-left corner, matching the frontend preview."""
+    if not hasattr(element, "setAnchor"):
+        return
+    try:
+        element.setAnchor("BOTTOM_LEFT_CORNER")
+    except Exception:
+        return
+
+
 def _apply_absolute_layout_element_box(element, config: dict[str, Any], warnings: list[str]) -> None:
     """Apply x/y/width/height values already expressed in layout page units."""
     try:
+        _set_bottom_left_anchor(element)
         element.elementPositionX = float(config["x"])
         element.elementPositionY = float(config["y"])
         element.elementWidth = float(config["width"])
@@ -659,18 +670,33 @@ def _mark_direct_white_background(element) -> None:
             return
 
 
-def _tune_direct_legend_element(element) -> None:
+def _tune_direct_legend_element(element, style_config: dict[str, Any] | None = None) -> None:
     """Apply direct LegendElement options exposed by ArcPy."""
+    style_config = style_config or {}
+    if hasattr(element, "title"):
+        try:
+            element.title = str(style_config.get("title") or "图例")
+        except Exception:
+            pass
+    for title_flag in ("showTitle", "show_title"):
+        if hasattr(element, title_flag):
+            try:
+                setattr(element, title_flag, True)
+            except Exception:
+                pass
     if hasattr(element, "fittingStrategy"):
         try:
-            element.fittingStrategy = "AdjustColumnsAndFont"
+            element.fittingStrategy = str(style_config.get("fitting_strategy") or "AdjustColumnsAndFont")
         except Exception:
             return
 
 
 def _legend_style_config(layout_config: dict[str, Any]) -> dict[str, Any]:
     style_config = layout_config.get("legend_style")
-    return style_config if isinstance(style_config, dict) else {}
+    result = dict(style_config) if isinstance(style_config, dict) else {}
+    if layout_config.get("mode") == "manual":
+        result.setdefault("fitting_strategy", "ManualColumns")
+    return result
 
 
 def _tune_cim_legend_element(element, style_config: dict[str, Any] | None = None) -> None:
@@ -678,8 +704,13 @@ def _tune_cim_legend_element(element, style_config: dict[str, Any] | None = None
     style_config = style_config or {}
     patch_width = _float_config(style_config.get("patch_width"), _LEGEND_PATCH_WIDTH)
     patch_height = _float_config(style_config.get("patch_height"), _LEGEND_PATCH_HEIGHT)
+    if hasattr(element, "title"):
+        element.title = str(style_config.get("title") or "图例")
+    for title_flag in ("showTitle", "show_title"):
+        if hasattr(element, title_flag):
+            setattr(element, title_flag, True)
     if hasattr(element, "fittingStrategy"):
-        element.fittingStrategy = "AdjustColumnsAndFont"
+        element.fittingStrategy = str(style_config.get("fitting_strategy") or "AdjustColumnsAndFont")
     if hasattr(element, "scaleSymbols"):
         element.scaleSymbols = bool(style_config.get("scale_symbols", False))
     if hasattr(element, "autoFonts"):
@@ -812,7 +843,7 @@ def _apply_layout_elements(layout, job_config: dict[str, Any], warnings: list[st
         if enabled:
             _apply_layout_element_box(layout, element, config_key, warnings, layout_config)
             if config_key == "legend":
-                _tune_direct_legend_element(element)
+                _tune_direct_legend_element(element, _legend_style_config(layout_config))
                 _mark_direct_white_background(element)
 
     background_names = set()
@@ -823,6 +854,12 @@ def _apply_layout_elements(layout, job_config: dict[str, Any], warnings: list[st
         background_names.add("图例")
     if background_names:
         _set_cim_layout_white_backgrounds(layout, background_names, warnings, layout_config)
+        legend_config = _manual_layout_element_config(layout_config, "legend")
+        if legend_enabled and legend_config is not None:
+            legend_element, _legend_name = _first_layout_element(layout, "LEGEND_ELEMENT", ["图例"])
+            if legend_element is not None:
+                _apply_absolute_layout_element_box(legend_element, legend_config, warnings)
+                _tune_direct_legend_element(legend_element, _legend_style_config(layout_config))
 
 
 def _snapshot_layout_elements(layout, map_frame) -> list[tuple[Any, float, float, float, float]]:

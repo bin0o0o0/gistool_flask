@@ -228,9 +228,9 @@ def _validate_render_payload(payload: dict[str, Any]) -> None:
     _require_path(inputs["river_network"], "inputs.river_network.path")
 
     station_layers = inputs["station_layers"]
-    # 至少需要一组站点图层，这样当前“4 个站点、两种样式”的用例能被保护。
-    if not isinstance(station_layers, list) or not station_layers:
-        raise ValidationError("inputs.station_layers must contain at least one item.")
+    # 站点图层是可选输入：没有站点 Excel 时，仍然可以只用流域边界和河流网络出图。
+    if not isinstance(station_layers, list):
+        raise ValidationError("inputs.station_layers must be a list.")
 
     layout = _require_dict(payload, "layout")
     basemap = layout.get("basemap")

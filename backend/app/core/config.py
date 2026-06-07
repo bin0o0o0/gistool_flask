@@ -19,8 +19,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.core.service_mode import (
+    SERVICE_MODE_ALL,
+    SERVICE_MODE_RENDER,
+    SERVICE_MODE_WATERSHED,
+    SERVICE_MODE_WATERSHED_BOUNDARY,
+    normalize_service_mode,
+)
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_WATERSHED_DEM_PATH = Path(r"D:\work\data\data\dem\dem.tif")
+DEFAULT_WATERSHED_DEM_PATH = Path(r"D:\work\2026\code\data\data\dem\dem.tif")
 
 
 def _is_truthy(value: Any) -> bool:
@@ -62,6 +70,7 @@ class AppConfig:
 
     # 测试钩子：单元测试传 FakeRenderer，真实运行保持 None。
     renderer: Any | None = None
+    service_mode: str = SERVICE_MODE_ALL
     watershed_program_root: Path = PROJECT_ROOT / "docs" / "program"
     watershed_default_dem_path: Path = DEFAULT_WATERSHED_DEM_PATH
 
@@ -114,6 +123,10 @@ class AppConfig:
         propy_value = values.get("ARCGIS_PROPY") or os.getenv("ARCGIS_PROPY")
         propy_path = Path(propy_value).resolve() if propy_value else None
 
+        service_mode_value = values.get("SERVICE_MODE")
+        if service_mode_value is None and not values.get("TESTING"):
+            service_mode_value = os.getenv("SERVICE_MODE")
+
         return cls(
             output_folder=output_folder,
             upload_folder=upload_folder,
@@ -125,6 +138,7 @@ class AppConfig:
             ),
             frontend_url=values.get("FRONTEND_URL") or os.getenv("FRONTEND_URL", "*"),
             renderer=values.get("RENDERER"),
+            service_mode=normalize_service_mode(service_mode_value),
             watershed_program_root=watershed_program_root,
             watershed_default_dem_path=watershed_default_dem_path,
         )
@@ -153,6 +167,7 @@ class AppConfig:
             "ARCGIS_PROPY": str(self.arcgis_propy_path) if self.arcgis_propy_path else None,
             "ALLOW_ABSOLUTE_OUTPUT_DIR": self.allow_absolute_output_dir,
             "FRONTEND_URL": self.frontend_url,
+            "SERVICE_MODE": self.service_mode,
             "WATERSHED_PROGRAM_ROOT": str(self.watershed_program_root),
             "WATERSHED_DEFAULT_DEM_PATH": str(self.watershed_default_dem_path),
         }
@@ -165,6 +180,12 @@ class AppConfig:
         - 当前使用哪个 output 目录。
         - 当前使用哪个 aprx 模板。
         """
+        runtime_labels = {
+            SERVICE_MODE_RENDER: "ArcPy in-process",
+            SERVICE_MODE_WATERSHED: "Watershed extraction Python",
+            SERVICE_MODE_WATERSHED_BOUNDARY: "Watershed boundary Python",
+            SERVICE_MODE_ALL: "All API groups",
+        }
         return {
             "service": "gis-flask-study-backend",
             "status": "ok",
@@ -177,7 +198,8 @@ class AppConfig:
                 str(self.arcgis_propy_path) if self.arcgis_propy_path else None
             ),
             "allow_absolute_output_dir": self.allow_absolute_output_dir,
-            "runtime": "ArcPy in-process",
+            "runtime": runtime_labels.get(self.service_mode, self.service_mode),
+            "service_mode": self.service_mode,
             "watershed_program_root": str(self.watershed_program_root),
             "watershed_default_dem_path": str(self.watershed_default_dem_path),
         }

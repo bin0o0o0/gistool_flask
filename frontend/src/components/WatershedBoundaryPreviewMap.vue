@@ -10,12 +10,13 @@ import { createEmpty, extend as extendExtent, isEmpty } from 'ol/extent'
 import GeoJSON from 'ol/format/GeoJSON'
 import TileLayer from 'ol/layer/Tile'
 import VectorLayer from 'ol/layer/Vector'
-import { fromLonLat } from 'ol/proj'
+import { fromLonLat, toLonLat } from 'ol/proj'
 import OSM from 'ol/source/OSM'
 import VectorSource from 'ol/source/Vector'
 import { Circle as CircleStyle, Fill, Stroke, Style } from 'ol/style'
 
 import type { GeoJsonFeatureCollection, WatershedBoundaryBbox, WatershedBoundaryPoint } from '@/types'
+import { formatLonLatDisplay } from '@/utils/mapCoordinate'
 
 const props = defineProps<{
   point: WatershedBoundaryPoint
@@ -24,6 +25,7 @@ const props = defineProps<{
 }>()
 
 const mapElement = ref<HTMLElement | null>(null)
+const pointerCoordinateText = ref('移动鼠标查看经纬度')
 const format = new GeoJSON()
 const defaultCenter = fromLonLat([105.2, 27.06])
 
@@ -99,6 +101,15 @@ const resultLayer = new VectorLayer({
 
 let map: OLMap | null = null
 
+function updatePointerCoordinate(coordinate: number[]) {
+  const [lon, lat] = toLonLat(coordinate)
+  pointerCoordinateText.value = formatLonLatDisplay([lon, lat])
+}
+
+function resetPointerCoordinate() {
+  pointerCoordinateText.value = '移动鼠标查看经纬度'
+}
+
 function refreshSources() {
   previewSource.clear(true)
   resultSource.clear(true)
@@ -158,10 +169,15 @@ onMounted(() => {
       zoom: 9
     })
   })
+  map.on('pointermove', (event) => {
+    updatePointerCoordinate(event.coordinate)
+  })
+  mapElement.value.addEventListener('pointerleave', resetPointerCoordinate)
   refreshSources()
 })
 
 onBeforeUnmount(() => {
+  mapElement.value?.removeEventListener('pointerleave', resetPointerCoordinate)
   if (map) {
     map.setTarget(undefined)
     map = null
@@ -194,6 +210,10 @@ watch(
         <span class="legend-swatch legend-swatch--point"></span>
         <span>目标点</span>
       </div>
+    </div>
+
+    <div class="boundary-map__coordinate">
+      {{ pointerCoordinateText }}
     </div>
   </section>
 </template>
@@ -268,9 +288,35 @@ watch(
   background: #ffd27a;
 }
 
+.boundary-map__coordinate {
+  position: absolute;
+  right: 16px;
+  bottom: 14px;
+  z-index: 3;
+  max-width: calc(100% - 32px);
+  padding: 9px 12px;
+  border: 1px solid rgba(168, 247, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(2, 12, 25, 0.82);
+  color: rgba(244, 252, 255, 0.9);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  pointer-events: none;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.24);
+}
+
 @media (max-width: 860px) {
   .boundary-map {
     min-height: 520px;
+  }
+
+  .boundary-map__coordinate {
+    right: 10px;
+    bottom: 10px;
+    font-size: 0.72rem;
   }
 }
 </style>

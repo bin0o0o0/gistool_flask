@@ -18,7 +18,7 @@ export type UploadKind = 'template_project' | 'basin_boundary' | 'river_network'
 
 export type StationShape = 'circle' | 'triangle' | 'square' | 'diamond' | 'rectangle'
 
-export type WorkspaceStepId = 'data' | 'output' | 'style' | 'stations'
+export type WorkspaceStepId = 'data' | 'output' | 'style' | 'stations-style' | 'stations-attrs'
 
 export interface RenderOptions {
   label_positions: string[]
@@ -86,6 +86,7 @@ export interface BasinLayerForm {
   upload?: UploadResult
   name: string
   path: string
+  preview?: GeoJsonFeatureCollection
   style: {
     boundary_color: string
     boundary_width_pt: number
@@ -99,6 +100,7 @@ export interface RiverLayerForm {
   upload?: UploadResult
   name: string
   path: string
+  preview?: GeoJsonFeatureCollection
   style: {
     color: string
     width_pt: number
