@@ -360,6 +360,9 @@ def _validate_legend_name_overrides(name_overrides: Any) -> None:
             value = override.get(field)
             if value is not None and not isinstance(value, str):
                 raise ValidationError(f"layout.legend_style.name_overrides[{index}].{field} must be a string.")
+        legend_visible = override.get("legend_visible")
+        if legend_visible is not None and not isinstance(legend_visible, bool):
+            raise ValidationError(f"layout.legend_style.name_overrides[{index}].legend_visible must be a boolean.")
 
 
 def _require_dict(payload: dict[str, Any], field: str) -> dict[str, Any]:

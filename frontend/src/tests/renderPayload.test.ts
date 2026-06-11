@@ -282,15 +282,29 @@ describe('buildRenderPayload', () => {
       },
       {
         source_type: 'station_group',
-        source_key: 'station-layer-1-group-1',
-        default_name: 'GreenCircleStations - 1',
-        legend_name: 'GreenCircleStations - 1'
+        source_key: 'station-layer-1-point-2',
+        default_name: '绔欑偣A',
+        legend_name: '绔欑偣A',
+        symbol: {
+          shape: 'circle',
+          color_preset: 'green',
+          color: '#00a651',
+          size_pt: 20,
+          rotation_deg: 0
+        }
       },
       {
         source_type: 'station_group',
-        source_key: 'station-layer-1-group-2',
-        default_name: 'GreenCircleStations - 2',
-        legend_name: '红色三角站'
+        source_key: 'station-layer-1-point-3',
+        default_name: '绔欑偣B',
+        legend_name: '绔欑偣B',
+        symbol: {
+          shape: 'triangle',
+          color_preset: 'red',
+          color: '#ff0000',
+          size_pt: 22,
+          rotation_deg: 15
+        }
       }
     ])
     expect(payload.map_view.mode).toBe('auto_padding')

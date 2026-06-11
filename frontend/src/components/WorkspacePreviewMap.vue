@@ -322,7 +322,11 @@ watch(
                 class="layout-legend__row"
                 :style="{ marginTop: `${preview.layoutPreview.legend.rowGapPx}px` }"
               >
-                <span class="layout-legend__patch" :data-kind="row.sourceType" :style="preview.layoutPreview.legend.patchStyle"></span>
+                <span
+                  class="layout-legend__patch"
+                  :data-kind="row.sourceType"
+                  :style="{ ...preview.layoutPreview.legend.patchStyle, ...row.patchStyle }"
+                ></span>
                 <span>{{ row.label }}</span>
               </div>
             </div>
@@ -519,9 +523,6 @@ watch(
 
 .layout-legend__patch[data-kind='station_layer'],
 .layout-legend__patch[data-kind='station_group'] {
-  width: 10px !important;
-  height: 10px !important;
-  border-radius: 50%;
   background: #00a651;
 }
 

@@ -29,6 +29,7 @@ export interface WorkspacePreviewBox {
 export interface WorkspacePreviewLegendRow {
   sourceType: string
   label: string
+  patchStyle: Record<string, string>
 }
 
 export interface WorkspacePreviewLegend extends WorkspacePreviewBox {
@@ -238,10 +239,13 @@ function buildLayoutPreview(form: WorkspaceForm): WorkspaceLayoutPreview {
       ? {
           style: topLeftAnchoredBoxStyle(elements.legend, pageUnits),
           title: '图例',
-          rows: collectLegendNameOverrides(form).map((row) => ({
-            sourceType: row.source_type,
-            label: row.legend_name
-          })),
+          rows: collectLegendNameOverrides(form)
+            .filter((row) => row.legend_visible !== false)
+            .map((row) => ({
+              sourceType: row.source_type,
+              label: row.legend_name,
+              patchStyle: legendRowPatchStyle(row, legendStyle)
+            })),
           patchStyle: {
             width: `${legendStyle.patch_width}px`,
             height: `${legendStyle.patch_height}px`,
@@ -254,6 +258,36 @@ function buildLayoutPreview(form: WorkspaceForm): WorkspaceLayoutPreview {
     scaleBar: elements.scale_bar.enabled ? { style: boxStyle(elements.scale_bar, pageUnits) } : null,
     northArrow: elements.north_arrow.enabled ? { style: boxStyle(elements.north_arrow, pageUnits) } : null
   }
+}
+
+function legendRowPatchStyle(
+  row: ReturnType<typeof collectLegendNameOverrides>[number],
+  legendStyle: WorkspaceForm['layout']['legend_style']
+) {
+  const base = {
+    width: `${legendStyle.patch_width}px`,
+    height: `${legendStyle.patch_height}px`,
+    marginRight: `${legendStyle.text_gap}px`
+  }
+  if (row.source_type === 'river') {
+    return {
+      ...base,
+      height: `${Math.max(2, Math.min(legendStyle.patch_height, 4))}px`,
+      border: '0',
+      borderRadius: '999px',
+      background: '#2f80ed'
+    }
+  }
+  if (row.source_type === 'station_group' || row.source_type === 'station_layer') {
+    const symbol = row.symbol || {}
+    return {
+      ...base,
+      borderRadius: symbol.shape === 'circle' ? '50%' : symbol.shape === 'diamond' ? '2px' : '3px',
+      transform: symbol.shape === 'diamond' ? 'rotate(45deg)' : 'none',
+      background: symbol.color || '#00a651'
+    }
+  }
+  return base
 }
 
 function createBasinFeature(layer: BasinLayerForm, center: [number, number], index: number) {

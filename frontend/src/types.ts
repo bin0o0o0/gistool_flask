@@ -79,6 +79,8 @@ export interface LegendNameOverrideForm {
   source_key: string
   default_name: string
   legend_name: string
+  legend_visible?: boolean
+  symbol?: Partial<StationSymbolForm>
 }
 
 export interface BasinLayerForm {

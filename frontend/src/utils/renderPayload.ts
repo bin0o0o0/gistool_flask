@@ -103,7 +103,7 @@ export function buildRenderPayload(form: WorkspaceForm) {
       elements: form.layout.elements,
       legend_style: {
         ...form.layout.legend_style,
-        name_overrides: collectLegendNameOverrides(form)
+        name_overrides: collectLegendNameOverrides(form, { includeHidden: true })
       }
     },
     map_view: form.map_view,

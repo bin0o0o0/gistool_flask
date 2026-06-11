@@ -55,7 +55,7 @@ const exportFormats = ref({
   geotiff: false
 })
 
-const legendRows = computed(() => collectLegendNameOverrides(store.form))
+const legendRows = computed(() => collectLegendNameOverrides(store.form, { includeHidden: true }))
 const primaryLegendRow = computed(() => legendRows.value[0] || null)
 const stationLayers = computed(() => store.form.inputs.station_layers)
 const firstStationLayer = computed(() => store.form.inputs.station_layers[0])
@@ -195,18 +195,40 @@ function updateLegendName(row: LegendNameOverrideForm | null | undefined, value:
   const normalized = (value || '').trim()
   const overrides = store.form.layout.legend_style.name_overrides
   const index = overrides.findIndex((item) => item.source_key === row.source_key)
-  if (!normalized || normalized === row.default_name) {
+  if ((!normalized || normalized === row.default_name) && row.legend_visible !== false) {
     if (index >= 0) overrides.splice(index, 1)
   } else {
     const next: LegendNameOverrideForm = {
       source_type: row.source_type as LegendNameSourceType,
       source_key: row.source_key,
       default_name: row.default_name,
-      legend_name: normalized
+      legend_name: normalized || row.default_name,
+      ...(row.legend_visible === false ? { legend_visible: false } : {})
     }
     if (index >= 0) overrides.splice(index, 1, next)
     else overrides.push(next)
   }
+  store.markStepConfigured('output')
+}
+
+function setLegendRowVisible(row: LegendNameOverrideForm, visible: boolean | string | number) {
+  const overrides = store.form.layout.legend_style.name_overrides
+  const index = overrides.findIndex((item) => item.source_key === row.source_key)
+  const shouldShow = Boolean(visible)
+  if (shouldShow && row.legend_name === row.default_name) {
+    if (index >= 0) overrides.splice(index, 1)
+    store.markStepConfigured('output')
+    return
+  }
+  const next: LegendNameOverrideForm = {
+    source_type: row.source_type as LegendNameSourceType,
+    source_key: row.source_key,
+    default_name: row.default_name,
+    legend_name: row.legend_name || row.default_name,
+    ...(shouldShow ? {} : { legend_visible: false })
+  }
+  if (index >= 0) overrides.splice(index, 1, next)
+  else overrides.push(next)
   store.markStepConfigured('output')
 }
 
@@ -654,13 +676,20 @@ function onStepBack(step: 'data' | 'style' | 'stations-style' | 'stations-attrs'
           </div>
 
           <div v-if="legendRows.length" class="legend-table">
-            <div v-for="row in legendRows.slice(0, 6)" :key="row.source_key" class="legend-table__row">
+            <div v-for="row in legendRows" :key="row.source_key" class="legend-table__row">
               <span>{{ row.default_name }}</span>
               <el-input
                 :model-value="row.legend_name"
                 placeholder="图例显示名"
                 @update:model-value="updateLegendName(row, $event)"
               />
+              <span class="toggle-inline">
+                显示
+                <el-switch
+                  :model-value="row.legend_visible !== false"
+                  @change="setLegendRowVisible(row, $event)"
+                />
+              </span>
             </div>
           </div>
         </div>

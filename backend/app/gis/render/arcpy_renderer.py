@@ -510,9 +510,63 @@ def _set_label_cim_style(layer, label_config: dict[str, Any]) -> None:
                 color = getattr(symbol_layer, "color", None)
                 if color is not None and hasattr(color, "values"):
                     color.values = [*rgb, 100]
+        _set_point_label_position(definition.labelClasses[0], str(label_config.get("position") or "top_right"))
         layer.setDefinition(definition)
     except Exception:
         return
+
+
+_LABEL_POSITION_PRIORITIES = {
+    "top_right": ("aboveRight", "topRight", "above_right"),
+    "top": ("aboveCenter", "top", "above"),
+    "top_left": ("aboveLeft", "topLeft", "above_left"),
+    "right": ("centerRight", "right", "middleRight"),
+    "left": ("centerLeft", "left", "middleLeft"),
+    "bottom_right": ("belowRight", "bottomRight", "below_right"),
+    "bottom": ("belowCenter", "bottom", "below"),
+    "bottom_left": ("belowLeft", "bottomLeft", "below_left"),
+}
+
+
+def _set_priority_value(priority_object, position: str) -> None:
+    """Best-effort write for ArcGIS label priority objects across CIM variants."""
+    if priority_object is None:
+        return
+    wanted_names = set(_LABEL_POSITION_PRIORITIES.get(position, _LABEL_POSITION_PRIORITIES["top_right"]))
+    for name in dir(priority_object):
+        if name.startswith("_"):
+            continue
+        try:
+            value = getattr(priority_object, name)
+        except Exception:
+            continue
+        if not isinstance(value, (int, float, bool)):
+            continue
+        try:
+            setattr(priority_object, name, 1 if name in wanted_names else 0)
+        except Exception:
+            continue
+
+
+def _set_point_label_position(label_class, position: str) -> None:
+    """Apply per-layer point label placement when the template exposes CIM placement objects."""
+    for placement_name in ("standardLabelPlacementProperties", "maplexLabelPlacementProperties"):
+        placement = getattr(label_class, placement_name, None)
+        if placement is None:
+            continue
+        for method_name in ("pointPlacementMethod", "placementMethod"):
+            if hasattr(placement, method_name):
+                try:
+                    setattr(placement, method_name, "AroundPoint")
+                except Exception:
+                    pass
+        for priorities_name in (
+            "pointPlacementPriorities",
+            "pointExternalZonePriorities",
+            "externalZonePriorities",
+        ):
+            priorities = getattr(placement, priorities_name, None)
+            _set_priority_value(priorities, position)
 
 
 def _apply_station_labels(layer, station_layer: dict[str, Any]) -> None:
@@ -670,6 +724,77 @@ def _mark_direct_white_background(element) -> None:
             return
 
 
+def _center_title_text(element) -> None:
+    """Keep title text centered in its text box for rendered maps."""
+    _center_text_alignment_attrs(element)
+
+
+def _set_attr_if_present(target, attr: str, value: Any) -> bool:
+    if target is None or not hasattr(target, attr):
+        return False
+    try:
+        setattr(target, attr, value)
+        return True
+    except Exception:
+        return False
+
+
+def _center_text_alignment_attrs(target) -> bool:
+    """Best-effort center alignment for ArcPy TextElement/CIM text variants."""
+    alignment_values = {
+        "horizontalAlignment": "Center",
+        "verticalAlignment": "Middle",
+        "textHorizontalAlignment": "Center",
+        "textVerticalAlignment": "Middle",
+        "paragraphAlignment": "Center",
+        "justification": "Center",
+        "alignment": "Center",
+    }
+    changed = False
+    for attr, value in alignment_values.items():
+        changed = _set_attr_if_present(target, attr, value) or changed
+    return changed
+
+
+def _iter_cim_text_targets(element):
+    """Yield likely nested CIM text objects without depending on one ArcGIS version."""
+    seen: set[int] = set()
+    stack = [element]
+    nested_attrs = (
+        "graphic",
+        "textGraphic",
+        "symbol",
+        "textSymbol",
+        "paragraphSymbol",
+        "callout",
+        "text",
+    )
+    while stack:
+        target = stack.pop()
+        if target is None:
+            continue
+        target_id = id(target)
+        if target_id in seen:
+            continue
+        seen.add(target_id)
+        yield target
+        for attr in nested_attrs:
+            try:
+                child = getattr(target, attr, None)
+            except Exception:
+                child = None
+            if child is not None:
+                stack.append(child)
+
+
+def _center_cim_title_text(element) -> bool:
+    """Center title text inside ArcGIS CIM objects used during real PNG export."""
+    changed = False
+    for target in _iter_cim_text_targets(element):
+        changed = _center_text_alignment_attrs(target) or changed
+    return changed
+
+
 def _tune_direct_legend_element(element, style_config: dict[str, Any] | None = None) -> None:
     """Apply direct LegendElement options exposed by ArcPy."""
     style_config = style_config or {}
@@ -759,6 +884,7 @@ def _set_cim_layout_white_backgrounds(
     element_names: set[str],
     warnings: list[str],
     layout_config: dict[str, Any] | None = None,
+    title_names: set[str] | None = None,
 ) -> None:
     """通过 CIM 给标题和图例设置白底。"""
     try:
@@ -771,9 +897,16 @@ def _set_cim_layout_white_backgrounds(
 
     layout_config = layout_config or {}
     legend_style = _legend_style_config(layout_config)
+    title_names = title_names or set()
+    target_names = set(element_names) | set(title_names)
     changed = False
     for element in elements:
-        if getattr(element, "name", None) not in element_names:
+        element_name = getattr(element, "name", None)
+        if element_name not in target_names:
+            continue
+        if element_name in title_names:
+            changed = _center_cim_title_text(element) or changed
+        if element_name not in element_names:
             continue
         frame = getattr(element, "graphicFrame", None)
         if frame is None:
@@ -788,7 +921,7 @@ def _set_cim_layout_white_backgrounds(
                 frame.backgroundGapX = 1
             if hasattr(frame, "backgroundGapY"):
                 frame.backgroundGapY = 1
-            if getattr(element, "name", None) == "图例":
+            if element_name == "图例":
                 _tune_cim_legend_element(element, legend_style)
             changed = True
         except Exception:
@@ -825,6 +958,7 @@ def _apply_layout_elements(layout, job_config: dict[str, Any], warnings: list[st
                 warnings.append(f"layout title element named {title_name!r} text could not be changed.")
         if title_enabled:
             _apply_layout_element_box(layout, title_element, "title", warnings, layout_config)
+            _center_title_text(title_element)
             _mark_direct_white_background(title_element)
 
     layout_elements = [
@@ -853,7 +987,8 @@ def _apply_layout_elements(layout, job_config: dict[str, Any], warnings: list[st
     if legend_enabled:
         background_names.add("图例")
     if background_names:
-        _set_cim_layout_white_backgrounds(layout, background_names, warnings, layout_config)
+        title_names = {title_name} if title_enabled and title_element is not None else set()
+        _set_cim_layout_white_backgrounds(layout, background_names, warnings, layout_config, title_names)
         legend_config = _manual_layout_element_config(layout_config, "legend")
         if legend_enabled and legend_config is not None:
             legend_element, _legend_name = _first_layout_element(layout, "LEGEND_ELEMENT", ["图例"])
@@ -1210,9 +1345,37 @@ def _legend_name_overrides(job_config: dict[str, Any]) -> dict[str, str]:
     return override_map
 
 
+def _legend_visibility_overrides(job_config: dict[str, Any]) -> dict[str, bool]:
+    """Return a lookup table for legend-only visibility switches."""
+    legend_style = (job_config.get("layout") or {}).get("legend_style") or {}
+    overrides = legend_style.get("name_overrides")
+    if not isinstance(overrides, list):
+        return {}
+    visibility_map: dict[str, bool] = {}
+    for override in overrides:
+        if not isinstance(override, dict):
+            continue
+        source_key = override.get("source_key")
+        legend_visible = override.get("legend_visible")
+        if isinstance(source_key, str) and source_key and isinstance(legend_visible, bool):
+            visibility_map[source_key] = legend_visible
+    return visibility_map
+
+
 def _legend_layer_name(override_map: dict[str, str], source_key: str, default_name: str) -> str:
     """Resolve the visible layer name that ArcGIS legend items will use."""
     return override_map.get(source_key, default_name)
+
+
+def _set_layer_legend_visible(layer, visible: bool) -> None:
+    """Hide a layer from the legend while keeping it visible on the map."""
+    for attr in ("showInLegend", "showInLegendView", "legendVisible"):
+        if hasattr(layer, attr):
+            try:
+                setattr(layer, attr, visible)
+                return
+            except Exception:
+                pass
 
 
 def _station_point_layer_config(station_layer: dict[str, Any], point_config: dict[str, Any] | None) -> dict[str, Any]:
@@ -1264,8 +1427,13 @@ def _add_per_point_station_layers(
     index: int,
     warnings: list[str],
     legend_name_map: dict[str, str],
+    legend_visibility_map: dict[str, bool],
 ) -> list[Any]:
-    """Render one Excel station layer as internal sublayers grouped by per-point styles."""
+    """Render one Excel station layer as internal per-point layers.
+
+    One map layer per station point lets ArcGIS legend items match station names
+    one-to-one while the point remains visible even if its legend item is hidden.
+    """
     table_path = _create_station_table(arcpy, station_layer, work_dir, index)
     fields = _station_csv_fields(station_layer)
     point_configs = {
@@ -1274,7 +1442,7 @@ def _add_per_point_station_layers(
         if isinstance(point, dict) and isinstance(point.get("row_number"), int)
     }
     seen_rows: set[int] = set()
-    groups: dict[str, dict[str, Any]] = {}
+    point_layers: list[dict[str, Any]] = []
 
     with arcpy.da.SearchCursor(str(table_path), fields) as cursor:
         for zero_index, row_values in enumerate(cursor):
@@ -1288,10 +1456,12 @@ def _add_per_point_station_layers(
             else:
                 seen_rows.add(row_number)
             style_config = _station_point_layer_config(station_layer, point_config)
-            key = _station_style_key(style_config)
-            if key not in groups:
-                groups[key] = {"config": style_config, "rows": []}
-            groups[key]["rows"].append(values)
+            point_layers.append({
+                "row_number": row_number,
+                "config": style_config,
+                "values": values,
+                "name": (point_config or {}).get("name") or values.get(station_layer.get("name_field")) or f"Station {zero_index + 1}",
+            })
 
     for row_number in sorted(set(point_configs) - seen_rows):
         warnings.append(
@@ -1300,16 +1470,19 @@ def _add_per_point_station_layers(
 
     base_layer_name = station_layer.get("layer_name") or f"StationLayer{index + 1}"
     added_layers: list[Any] = []
-    for group_index, group in enumerate(groups.values()):
-        group_config = dict(group["config"])
-        default_group_name = f"{base_layer_name} - {group_index + 1}"
-        group_source_key = f"station-layer-{index + 1}-group-{group_index + 1}"
-        group_config["layer_name"] = _legend_layer_name(legend_name_map, group_source_key, default_group_name)
-        group_table = _write_station_group_table(work_dir, index, group_index, fields, group["rows"])
-        point_path = work_dir / f"station_layer_{index}_group_{group_index}.shp"
+    for point_index, point_layer in enumerate(point_layers):
+        group_config = dict(point_layer["config"])
+        default_group_name = str(point_layer["name"] or f"{base_layer_name} - {point_index + 1}")
+        point_source_key = f"station-layer-{index + 1}-point-{point_layer['row_number']}"
+        legacy_group_source_key = f"station-layer-{index + 1}-group-{point_index + 1}"
+        source_key = point_source_key if point_source_key in legend_name_map or point_source_key in legend_visibility_map else legacy_group_source_key
+        group_config["layer_name"] = _legend_layer_name(legend_name_map, source_key, default_group_name)
+        group_table = _write_station_group_table(work_dir, index, point_index, fields, [point_layer["values"]])
+        point_path = work_dir / f"station_layer_{index}_point_{point_index}.shp"
         _xy_table_to_station_points(arcpy, group_table, point_path, station_layer)
         added_layer = map_obj.addDataFromPath(str(point_path))
         _rename_layer(added_layer, group_config["layer_name"])
+        _set_layer_legend_visible(added_layer, legend_visibility_map.get(source_key, True))
         _apply_station_symbol(added_layer, group_config)
         _apply_station_labels(added_layer, group_config)
         added_layers.append(added_layer)
@@ -1323,6 +1496,7 @@ def _add_station_layers(
     work_dir: Path,
     warnings: list[str],
     legend_name_map: dict[str, str],
+    legend_visibility_map: dict[str, bool],
 ) -> list[Any]:
     """Add station layers to the map and apply layer or per-point styles."""
     added_layers: list[Any] = []
@@ -1337,6 +1511,7 @@ def _add_station_layers(
                     index,
                     warnings,
                     legend_name_map,
+                    legend_visibility_map,
                 )
             )
             continue
@@ -1350,6 +1525,7 @@ def _add_station_layers(
         )
         added_layer = map_obj.addDataFromPath(str(point_path))
         _rename_layer(added_layer, resolved_station_layer["layer_name"])
+        _set_layer_legend_visible(added_layer, legend_visibility_map.get(layer_source_key, True))
         _apply_station_symbol(added_layer, resolved_station_layer)
         _apply_station_labels(added_layer, resolved_station_layer)
         added_layers.append(added_layer)
@@ -1425,6 +1601,7 @@ def _export_template_render(
 
     inputs = job_config.get("inputs", {})
     legend_name_map = _legend_name_overrides(job_config)
+    legend_visibility_map = _legend_visibility_overrides(job_config)
     # 先加全部流域，再加全部河流，再加站点。图层顺序通常会影响地图显示效果。
     basin_layers = []
     for index, basin_config in enumerate(_basin_layer_configs(inputs)):
@@ -1444,6 +1621,7 @@ def _export_template_render(
                 basin_config.get("layer_name") or f"Basin {index + 1}",
             ),
         )
+        _set_layer_legend_visible(basin_layer, legend_visibility_map.get(f"basin-layer-{index + 1}", True))
         _apply_polygon_style(basin_layer, job_config, basin_config)
         basin_layers.append(basin_layer)
 
@@ -1465,6 +1643,7 @@ def _export_template_render(
                 river_config.get("layer_name") or f"River {index + 1}",
             ),
         )
+        _set_layer_legend_visible(river_layer, legend_visibility_map.get(f"river-layer-{index + 1}", True))
         _apply_line_style(river_layer, job_config, river_config)
         river_layers.append(river_layer)
 
@@ -1475,6 +1654,7 @@ def _export_template_render(
         output_png.parent,
         warnings,
         legend_name_map,
+        legend_visibility_map,
     )
 
     # Zoom to all business layers. Stations can sit outside the basin boundary,

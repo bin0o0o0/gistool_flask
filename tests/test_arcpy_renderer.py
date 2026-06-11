@@ -51,6 +51,7 @@ class _FakeLayer:
         self.extent = extent or _FakeExtent(0, 0, 10, 10)
         self.symbology = _FakeSymbology()
         self.showLabels = False
+        self.showInLegend = True
         self._label_classes = [_FakeLabelClass()]
         self.definition = _FakeLayerDefinition()
 
@@ -140,6 +141,19 @@ class _FakeCimLabelClass:
 
     def __init__(self) -> None:
         self.textSymbol = SimpleNamespace(symbol=_FakeCimTextSymbol())
+        self.standardLabelPlacementProperties = SimpleNamespace(
+            pointPlacementMethod=None,
+            pointPlacementPriorities=SimpleNamespace(
+                aboveLeft=0,
+                aboveCenter=0,
+                aboveRight=0,
+                centerLeft=0,
+                centerRight=0,
+                belowLeft=0,
+                belowCenter=0,
+                belowRight=0,
+            ),
+        )
 
 
 class _FakeLayerDefinition:
@@ -253,10 +267,26 @@ class _FakeLayoutElement:
         self.elementHeight = height
         self.textSize = 10
         self.background_color = None
+        self.horizontalAlignment = None
+        self.verticalAlignment = None
+        self.textHorizontalAlignment = None
+        self.textVerticalAlignment = None
+        self.paragraphAlignment = None
         self.fittingStrategy = None
         self.anchor = None
         self.title = ""
         self.showTitle = False
+        self.graphicFrame = SimpleNamespace(backgroundSymbol=None, backgroundGapX=None, backgroundGapY=None)
+        self.graphic = SimpleNamespace(
+            frame=self.graphicFrame,
+            textGraphic=SimpleNamespace(
+                horizontalAlignment=None,
+                verticalAlignment=None,
+                textHorizontalAlignment=None,
+                textVerticalAlignment=None,
+                paragraphAlignment=None,
+            ),
+        )
 
     def setAnchor(self, anchor: str) -> None:
         self.anchor = anchor
@@ -273,6 +303,7 @@ class _FakeLayout:
         self.pageWidth = 11
         self.pageHeight = 8.5
         self.pageUnits = "INCH"
+        self.definition = SimpleNamespace(elements=self._elements)
 
     def listElements(self, element_type=None, wildcard=None):
         elements = []
@@ -291,6 +322,12 @@ class _FakeLayout:
         self.exported_png = path
         self.exported_resolution = resolution
         Path(path).write_bytes(b"fake-png")
+
+    def getDefinition(self, _version):
+        return self.definition
+
+    def setDefinition(self, definition):
+        self.definition = definition
 
 
 class _FakeProject:
@@ -404,10 +441,14 @@ def _install_fake_arcpy(monkeypatch, fake_project_factory, *, fail_on_existing_o
             # 把未定义属性转发给内部 fake project，减少重复样板代码。
             return getattr(self._project, name)
 
+    def _create_cim_object(_class_name, _version):
+        return SimpleNamespace()
+
     # 这个 SimpleNamespace 就是假的 arcpy 模块。
     # 只实现当前渲染器使用到的 mp/conversion/management/SpatialReference。
     fake_module = SimpleNamespace(
         mp=SimpleNamespace(ArcGISProject=_FakeArcGISProject),
+        cim=SimpleNamespace(CreateCIMObjectFromClassName=_create_cim_object),
         conversion=SimpleNamespace(
             ExcelToTable=_excel_to_table,
             JSONToFeatures=_json_to_features,
@@ -421,6 +462,7 @@ def _install_fake_arcpy(monkeypatch, fake_project_factory, *, fail_on_existing_o
         _json_to_features_calls=json_to_features_calls,
     )
     monkeypatch.setitem(sys.modules, "arcpy", fake_module)
+    monkeypatch.setitem(sys.modules, "arcpy.cim", fake_module.cim)
     return fake_module
 
 
@@ -697,6 +739,10 @@ def test_arcpy_renderer_updates_template_layout_elements_and_title_fallback(tmp_
     assert round(title.elementWidth, 3) == round(layout.pageWidth * 0.28, 3)
     assert round(title.elementHeight, 3) == round(layout.pageHeight * 0.055, 3)
     assert title.textSize == 18
+    assert title.horizontalAlignment == "Center"
+    assert title.verticalAlignment == "Middle"
+    assert title.graphic.textGraphic.horizontalAlignment == "Center"
+    assert title.graphic.textGraphic.verticalAlignment == "Middle"
     assert title.background_color == "#ffffff"
     assert round(legend.elementPositionX, 3) == round(layout.pageWidth * 0.045, 3)
     assert round(legend.elementPositionY, 3) == round(layout.pageHeight * 0.42, 3)
@@ -765,6 +811,8 @@ def test_arcpy_renderer_applies_manual_layout_element_positions(tmp_path, monkey
     assert (title.elementPositionX, title.elementPositionY) == (20, 170)
     assert (title.elementWidth, title.elementHeight) == (80, 12)
     assert title.textSize == 16
+    assert title.horizontalAlignment == "Center"
+    assert title.verticalAlignment == "Middle"
     assert (legend.elementPositionX, legend.elementPositionY) == (12, 90)
     assert (legend.elementWidth, legend.elementHeight) == (60, 70)
     assert legend.title == "图例"
@@ -1041,14 +1089,73 @@ def test_arcpy_renderer_splits_one_station_excel_by_per_point_styles(tmp_path, m
     assert result["status"] == "succeeded"
     assert len(fake_arcpy._excel_calls) == 1
     assert len(fake_arcpy._xy_calls) == 2
-    layers = [layer for layer in fake_projects[0]._map.listLayers() if layer.name.startswith("MixedStations")]
+    layers = [layer for layer in fake_projects[0]._map.listLayers() if layer.name in {"Station A", "Station B"}]
     assert len(layers) == 2
     assert layers[0].symbology.renderer.symbol.color == {"RGB": [0, 166, 81, 100]}
     assert layers[1].symbology.renderer.symbol.color == {"RGB": [255, 0, 0, 100]}
     assert layers[1].definition.renderer.symbol.symbol.symbolLayers[0].markerGraphics[0].geometry is not None
     assert layers[1].definition.labelClasses[0].textSymbol.symbol.height == 18
-    assert "MixedStations - 1" in fake_projects[0]._map_frame.requested_extent_layers
-    assert "MixedStations - 2" in fake_projects[0]._map_frame.requested_extent_layers
+    assert layers[0].definition.labelClasses[0].standardLabelPlacementProperties.pointPlacementPriorities.aboveRight == 1
+    assert layers[1].definition.labelClasses[0].standardLabelPlacementProperties.pointPlacementPriorities.centerLeft == 1
+    assert "Station A" in fake_projects[0]._map_frame.requested_extent_layers
+    assert "Station B" in fake_projects[0]._map_frame.requested_extent_layers
+
+
+def test_arcpy_renderer_can_hide_station_group_from_legend_only(tmp_path, monkeypatch):
+    """A station group can be removed from the legend without removing its map layer."""
+    from app.gis.render import ArcPyRenderer
+
+    template_project = tmp_path / "template.aprx"
+    template_project.write_text("template", encoding="utf-8")
+    fake_projects = []
+
+    def build_project(opened_path: str):
+        project = _FakeProject(opened_path)
+        fake_projects.append(project)
+        return project
+
+    _install_fake_arcpy(monkeypatch, build_project)
+    job_config = _job_config(tmp_path)
+    job_config["inputs"]["station_layers"] = [job_config["inputs"]["station_layers"][0]]
+    job_config["inputs"]["station_layers"][0]["layer_name"] = "MixedStations"
+    job_config["inputs"]["station_layers"][0]["points"] = [
+        {
+            "row_number": 2,
+            "name": "Station A",
+            "symbol": {"shape": "circle", "color": "#00a651", "size_pt": 20},
+            "label": {"enabled": True, "color": "#000000", "font_size_pt": 18, "position": "top_right"},
+        },
+        {
+            "row_number": 3,
+            "name": "Station B",
+            "symbol": {"shape": "triangle", "color": "#ff0000", "size_pt": 20},
+            "label": {"enabled": True, "color": "#000000", "font_size_pt": 18, "position": "top_right"},
+        },
+    ]
+    job_config["layout"]["legend_style"] = {
+        "name_overrides": [
+                {
+                    "source_type": "station_group",
+                    "source_key": "station-layer-1-point-3",
+                    "default_name": "Station B",
+                    "legend_name": "Hidden station",
+                    "legend_visible": False,
+                }
+        ]
+    }
+
+    result = ArcPyRenderer().render(
+        job_config=job_config,
+        output_dir=tmp_path / "outputs",
+        template_project=template_project,
+    )
+
+    assert result["status"] == "succeeded"
+    layers = [layer for layer in fake_projects[0]._map.listLayers() if layer.name == "Station A" or layer.name == "Hidden station"]
+    assert len(layers) == 2
+    assert layers[0].showInLegend is True
+    assert layers[1].name == "Hidden station"
+    assert layers[1].showInLegend is False
 
 
 def test_arcpy_renderer_applies_legend_name_overrides_to_basin_river_and_station_groups(tmp_path, monkeypatch):
