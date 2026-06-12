@@ -795,9 +795,14 @@ def _center_cim_title_text(element) -> bool:
     return changed
 
 
-def _tune_direct_legend_element(element, style_config: dict[str, Any] | None = None) -> None:
+def _tune_direct_legend_element(
+    element,
+    style_config: dict[str, Any] | None = None,
+    hidden_names: set[str] | None = None,
+) -> None:
     """Apply direct LegendElement options exposed by ArcPy."""
     style_config = style_config or {}
+    hidden_names = hidden_names or set()
     if hasattr(element, "title"):
         try:
             element.title = str(style_config.get("title") or "图例")
@@ -814,6 +819,7 @@ def _tune_direct_legend_element(element, style_config: dict[str, Any] | None = N
             element.fittingStrategy = str(style_config.get("fitting_strategy") or "AdjustColumnsAndFont")
         except Exception:
             return
+    _prune_hidden_cim_legend_items(element, hidden_names)
 
 
 def _legend_style_config(layout_config: dict[str, Any]) -> dict[str, Any]:
@@ -824,9 +830,124 @@ def _legend_style_config(layout_config: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _tune_cim_legend_element(element, style_config: dict[str, Any] | None = None) -> None:
+def _legend_item_name_candidates(item) -> set[str]:
+    """Return likely display names for one ArcGIS CIM legend item."""
+    candidates: set[str] = set()
+    for attr in ("name", "label", "title", "layerName", "heading", "description"):
+        try:
+            value = getattr(item, attr, None)
+        except Exception:
+            value = None
+        if isinstance(value, str) and value.strip():
+            candidates.add(value.strip())
+    for attr in ("layer", "mapMember", "sourceLayer", "layerInfo", "legendClass"):
+        try:
+            nested = getattr(item, attr, None)
+        except Exception:
+            nested = None
+        nested_name = getattr(nested, "name", None) if nested is not None else None
+        if isinstance(nested_name, str) and nested_name.strip():
+            candidates.add(nested_name.strip())
+    return candidates
+
+
+def _legend_item_is_hidden(item, hidden_names: set[str]) -> bool:
+    if getattr(item, "_gistool_hide_from_legend", False):
+        return True
+    for attr in ("layer", "mapMember", "sourceLayer"):
+        try:
+            nested = getattr(item, attr, None)
+        except Exception:
+            nested = None
+        if getattr(nested, "_gistool_hide_from_legend", False):
+            return True
+    return bool(_legend_item_name_candidates(item) & hidden_names)
+
+
+def _hide_cim_legend_item(item) -> None:
+    """Best-effort hide for CIM legend items when list assignment is unavailable."""
+    for attr in ("visible", "isVisible", "show", "enabled", "showLayerName", "showHeading", "showVisibleFeatures"):
+        if hasattr(item, attr):
+            try:
+                setattr(item, attr, False)
+            except Exception:
+                pass
+
+
+def _prune_hidden_cim_legend_items(container, hidden_names: set[str], seen: set[int] | None = None) -> bool:
+    """Remove or hide matching legend entries from nested ArcGIS CIM legend structures."""
+    if container is None or not hidden_names:
+        return False
+    seen = seen or set()
+    container_id = id(container)
+    if container_id in seen:
+        return False
+    seen.add(container_id)
+
+    changed = False
+    list_attrs = (
+        "items",
+        "legendItems",
+        "layers",
+        "classes",
+        "legendClasses",
+        "classItems",
+        "patches",
+    )
+    nested_attrs = ("item", "layer", "mapMember", "sourceLayer", "layerInfo", "legendClass")
+
+    if _legend_item_is_hidden(container, hidden_names):
+        _hide_cim_legend_item(container)
+        changed = True
+
+    for attr in list_attrs:
+        try:
+            values = getattr(container, attr, None)
+        except Exception:
+            values = None
+        if not isinstance(values, list):
+            continue
+        kept_values = []
+        list_changed = False
+        for value in values:
+            if _legend_item_is_hidden(value, hidden_names):
+                _hide_cim_legend_item(value)
+                if hasattr(container, "removeItem"):
+                    try:
+                        container.removeItem(value)
+                    except Exception:
+                        pass
+                list_changed = True
+                changed = True
+                continue
+            if _prune_hidden_cim_legend_items(value, hidden_names, seen):
+                changed = True
+            kept_values.append(value)
+        if list_changed:
+            try:
+                setattr(container, attr, kept_values)
+            except Exception:
+                pass
+
+    for attr in nested_attrs:
+        try:
+            value = getattr(container, attr, None)
+        except Exception:
+            value = None
+        if value is not None and _prune_hidden_cim_legend_items(value, hidden_names, seen):
+            changed = True
+
+    return changed
+
+
+def _tune_cim_legend_element(
+    element,
+    style_config: dict[str, Any] | None = None,
+    hidden_names: set[str] | None = None,
+) -> None:
     """Keep legend symbols compact and consistent across polygon/line/point layers."""
     style_config = style_config or {}
+    hidden_names = hidden_names or set()
     patch_width = _float_config(style_config.get("patch_width"), _LEGEND_PATCH_WIDTH)
     patch_height = _float_config(style_config.get("patch_height"), _LEGEND_PATCH_HEIGHT)
     if hasattr(element, "title"):
@@ -856,6 +977,7 @@ def _tune_cim_legend_element(element, style_config: dict[str, Any] | None = None
                 "textGap": "text_gap",
             }[gap_name]
             setattr(element, gap_name, _float_config(style_config.get(api_name), 2))
+    _prune_hidden_cim_legend_items(element, hidden_names)
     for item in getattr(element, "items", []) or []:
         if hasattr(item, "patchHeight"):
             item.patchHeight = patch_height
@@ -885,6 +1007,7 @@ def _set_cim_layout_white_backgrounds(
     warnings: list[str],
     layout_config: dict[str, Any] | None = None,
     title_names: set[str] | None = None,
+    hidden_legend_names: set[str] | None = None,
 ) -> None:
     """通过 CIM 给标题和图例设置白底。"""
     try:
@@ -898,6 +1021,7 @@ def _set_cim_layout_white_backgrounds(
     layout_config = layout_config or {}
     legend_style = _legend_style_config(layout_config)
     title_names = title_names or set()
+    hidden_legend_names = hidden_legend_names or set()
     target_names = set(element_names) | set(title_names)
     changed = False
     for element in elements:
@@ -922,7 +1046,7 @@ def _set_cim_layout_white_backgrounds(
             if hasattr(frame, "backgroundGapY"):
                 frame.backgroundGapY = 1
             if element_name == "图例":
-                _tune_cim_legend_element(element, legend_style)
+                _tune_cim_legend_element(element, legend_style, hidden_legend_names)
             changed = True
         except Exception:
             warnings.append(f"layout element {getattr(element, 'name', 'unnamed')!r} background could not be set.")
@@ -934,7 +1058,12 @@ def _set_cim_layout_white_backgrounds(
             warnings.append("layout element white backgrounds could not be saved.")
 
 
-def _apply_layout_elements(layout, job_config: dict[str, Any], warnings: list[str]) -> None:
+def _apply_layout_elements(
+    layout,
+    job_config: dict[str, Any],
+    warnings: list[str],
+    hidden_legend_names: set[str] | None = None,
+) -> None:
     """应用布局元素配置。
 
     当前模板里的标题、图例、比例尺还没有完全整理好，所以这里采用“软失败”：
@@ -945,6 +1074,7 @@ def _apply_layout_elements(layout, job_config: dict[str, Any], warnings: list[st
     这样你可以先稳定生成地图主体，后续再完善标题、图例、比例尺、指北针。
     """
     layout_config = job_config.get("layout", {})
+    hidden_legend_names = hidden_legend_names or set()
     title_enabled = _layout_element_enabled(layout_config, "title")
     title_element, title_name = _first_layout_element(layout, "TEXT_ELEMENT", ["标题", "文本"])
     if title_element is None:
@@ -977,7 +1107,7 @@ def _apply_layout_elements(layout, job_config: dict[str, Any], warnings: list[st
         if enabled:
             _apply_layout_element_box(layout, element, config_key, warnings, layout_config)
             if config_key == "legend":
-                _tune_direct_legend_element(element, _legend_style_config(layout_config))
+                _tune_direct_legend_element(element, _legend_style_config(layout_config), hidden_legend_names)
                 _mark_direct_white_background(element)
 
     background_names = set()
@@ -988,13 +1118,34 @@ def _apply_layout_elements(layout, job_config: dict[str, Any], warnings: list[st
         background_names.add("图例")
     if background_names:
         title_names = {title_name} if title_enabled and title_element is not None else set()
-        _set_cim_layout_white_backgrounds(layout, background_names, warnings, layout_config, title_names)
+        _set_cim_layout_white_backgrounds(
+            layout,
+            background_names,
+            warnings,
+            layout_config,
+            title_names,
+            hidden_legend_names,
+        )
         legend_config = _manual_layout_element_config(layout_config, "legend")
         if legend_enabled and legend_config is not None:
             legend_element, _legend_name = _first_layout_element(layout, "LEGEND_ELEMENT", ["图例"])
             if legend_element is not None:
                 _apply_absolute_layout_element_box(legend_element, legend_config, warnings)
-                _tune_direct_legend_element(legend_element, _legend_style_config(layout_config))
+                _tune_direct_legend_element(legend_element, _legend_style_config(layout_config), hidden_legend_names)
+
+
+def _hide_direct_legend_items(layout, hidden_legend_names: set[str]) -> None:
+    """Final pass over live ArcPy LegendElement items immediately before export."""
+    if not hidden_legend_names:
+        return
+    try:
+        legends = layout.listElements("LEGEND_ELEMENT")
+    except Exception:
+        return
+    for legend in legends:
+        for item in getattr(legend, "items", []) or []:
+            if _legend_item_is_hidden(item, hidden_legend_names):
+                _hide_cim_legend_item(item)
 
 
 def _snapshot_layout_elements(layout, map_frame) -> list[tuple[Any, float, float, float, float]]:
@@ -1362,6 +1513,23 @@ def _legend_visibility_overrides(job_config: dict[str, Any]) -> dict[str, bool]:
     return visibility_map
 
 
+def _hidden_legend_names(job_config: dict[str, Any]) -> set[str]:
+    """Return final legend layer names that should be removed from ArcGIS legend items."""
+    legend_style = (job_config.get("layout") or {}).get("legend_style") or {}
+    overrides = legend_style.get("name_overrides")
+    if not isinstance(overrides, list):
+        return set()
+    hidden_names: set[str] = set()
+    for override in overrides:
+        if not isinstance(override, dict) or override.get("legend_visible") is not False:
+            continue
+        for key in ("legend_name", "default_name"):
+            value = override.get(key)
+            if isinstance(value, str) and value.strip():
+                hidden_names.add(value.strip())
+    return hidden_names
+
+
 def _legend_layer_name(override_map: dict[str, str], source_key: str, default_name: str) -> str:
     """Resolve the visible layer name that ArcGIS legend items will use."""
     return override_map.get(source_key, default_name)
@@ -1369,6 +1537,10 @@ def _legend_layer_name(override_map: dict[str, str], source_key: str, default_na
 
 def _set_layer_legend_visible(layer, visible: bool) -> None:
     """Hide a layer from the legend while keeping it visible on the map."""
+    try:
+        setattr(layer, "_gistool_hide_from_legend", not visible)
+    except Exception:
+        pass
     for attr in ("showInLegend", "showInLegendView", "legendVisible"):
         if hasattr(layer, attr):
             try:
@@ -1602,6 +1774,7 @@ def _export_template_render(
     inputs = job_config.get("inputs", {})
     legend_name_map = _legend_name_overrides(job_config)
     legend_visibility_map = _legend_visibility_overrides(job_config)
+    hidden_legend_names = _hidden_legend_names(job_config)
     # 先加全部流域，再加全部河流，再加站点。图层顺序通常会影响地图显示效果。
     basin_layers = []
     for index, basin_config in enumerate(_basin_layer_configs(inputs)):
@@ -1668,7 +1841,8 @@ def _export_template_render(
     )
     # ArcGIS populates legend items after layers are added, so tune the legend a second time
     # right before export to keep point symbols compact in the legend.
-    _apply_layout_elements(layout, job_config, warnings)
+    _apply_layout_elements(layout, job_config, warnings, hidden_legend_names)
+    _hide_direct_legend_items(layout, hidden_legend_names)
 
     # DPI 和上面设置过的页面尺寸共同决定最终导出像素：
     # width_px = pageWidth * dpi, height_px = pageHeight * dpi。

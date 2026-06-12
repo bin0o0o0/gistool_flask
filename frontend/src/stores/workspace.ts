@@ -94,9 +94,16 @@ const defaultOptions: RenderOptions = {
   label_positions: ['top_left', 'top', 'top_right', 'right', 'bottom_right', 'bottom', 'bottom_left', 'left'],
   station_symbol_shapes: ['circle', 'triangle', 'square', 'diamond', 'rectangle'],
   station_symbol_color_presets: {
+    blue: '#1f78ff',
+    cyan: '#42b8d9',
+    purple: '#7657f3',
+    orange: '#df9435',
     green: '#00a651',
     red: '#ff0000',
-    blue: '#1f78ff',
+    yellow: '#f2c94c',
+    pink: '#e76f9a',
+    brown: '#8d6e63',
+    gray: '#6b7280',
     black: '#000000'
   }
 }
@@ -157,7 +164,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       elements: {
         map_frame: { x: 6.53, y: 7.31, width: 257.15, height: 191.01 },
         title: { enabled: true, x: 97.54, y: 188, width: 69.86, height: 11.18, font_size: 20, background: true },
-        legend: { enabled: true, x: 12.19, y: 122.56, width: 59.61, height: 77.22, background: true },
+        legend: { enabled: true, x: 215.07, y: 70.53, width: 45, height: 60, background: true },
         scale_bar: { enabled: true, x: 83.99, y: 11.18, width: 92.12, height: 7.11 },
         north_arrow: { enabled: true, x: 249.26, y: 158.5, width: 7.04, height: 16.26 }
       },

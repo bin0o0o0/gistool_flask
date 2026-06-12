@@ -646,6 +646,77 @@ def test_arcpy_renderer_tunes_legend_items_to_uniform_small_patches():
     assert all(item.patchWidth == 12 for item in legend.items)
 
 
+def test_arcpy_renderer_removes_hidden_cim_legend_items():
+    """Hidden legend rows should be removed from CIM legend items, not only layer metadata."""
+    from types import SimpleNamespace
+
+    from app.gis.render import arcpy_renderer
+
+    visible_item = SimpleNamespace(name="Station A", patchHeight=0, patchWidth=0, scaleToPatch=False)
+    hidden_item = SimpleNamespace(name="Hidden station", patchHeight=0, patchWidth=0, scaleToPatch=False, visible=True)
+    legend = SimpleNamespace(items=[visible_item, hidden_item])
+
+    arcpy_renderer._tune_cim_legend_element(legend, hidden_names={"Hidden station"})
+
+    assert legend.items == [visible_item]
+    assert hidden_item.visible is False
+    assert visible_item.patchHeight == 6
+
+
+def test_arcpy_renderer_removes_hidden_nested_cim_legend_classes():
+    """ArcGIS templates may keep legend labels in nested class lists."""
+    from types import SimpleNamespace
+
+    from app.gis.render import arcpy_renderer
+
+    visible_class = SimpleNamespace(label="水文站", visible=True)
+    hidden_class = SimpleNamespace(label="雨量站2", visible=True)
+    station_item = SimpleNamespace(name="Station layer", classes=[visible_class, hidden_class])
+    legend = SimpleNamespace(items=[station_item])
+
+    arcpy_renderer._tune_cim_legend_element(legend, hidden_names={"雨量站2"})
+
+    assert station_item.classes == [visible_class]
+    assert hidden_class.visible is False
+
+
+def test_arcpy_renderer_removes_hidden_direct_legend_items():
+    """Direct ArcPy LegendElement items should also respect legend visibility switches."""
+    from types import SimpleNamespace
+
+    from app.gis.render import arcpy_renderer
+
+    visible_item = SimpleNamespace(name="雨量站", visible=True)
+    hidden_item = SimpleNamespace(name="雨量站2", visible=True)
+    removed_items = []
+
+    class _Legend(SimpleNamespace):
+        def removeItem(self, item):
+            removed_items.append(item.name)
+
+    legend = _Legend(items=[visible_item, hidden_item], fittingStrategy="")
+
+    arcpy_renderer._tune_direct_legend_element(legend, hidden_names={"雨量站2"})
+
+    assert [item.name for item in legend.items] == ["雨量站"]
+    assert removed_items == ["雨量站2"]
+    assert hidden_item.visible is False
+
+
+def test_arcpy_renderer_final_pass_hides_live_direct_legend_items():
+    """The final pre-export pass should hide live ArcPy legend items by name."""
+    from types import SimpleNamespace
+
+    from app.gis.render import arcpy_renderer
+
+    hidden_item = SimpleNamespace(name="雨量站2", visible=True)
+    layout = SimpleNamespace(listElements=lambda element_type: [SimpleNamespace(items=[hidden_item])] if element_type == "LEGEND_ELEMENT" else [])
+
+    arcpy_renderer._hide_direct_legend_items(layout, {"雨量站2"})
+
+    assert hidden_item.visible is False
+
+
 def test_arcpy_renderer_uses_manual_legend_fitting_for_manual_layout():
     """手动布局时，图例应使用固定框策略，确保 width/height 能影响真实出图。"""
     from types import SimpleNamespace
@@ -1110,7 +1181,12 @@ def test_arcpy_renderer_can_hide_station_group_from_legend_only(tmp_path, monkey
     fake_projects = []
 
     def build_project(opened_path: str):
-        project = _FakeProject(opened_path)
+        legend = _FakeLayoutElement("LEGEND_ELEMENT", "图例")
+        legend.items = [
+            SimpleNamespace(name="Station A", visible=True),
+            SimpleNamespace(name="雨量站2", visible=True),
+        ]
+        project = _FakeProject(opened_path, layout_elements=[legend])
         fake_projects.append(project)
         return project
 
@@ -1138,7 +1214,7 @@ def test_arcpy_renderer_can_hide_station_group_from_legend_only(tmp_path, monkey
                     "source_type": "station_group",
                     "source_key": "station-layer-1-point-3",
                     "default_name": "Station B",
-                    "legend_name": "Hidden station",
+                    "legend_name": "雨量站2",
                     "legend_visible": False,
                 }
         ]
@@ -1151,11 +1227,13 @@ def test_arcpy_renderer_can_hide_station_group_from_legend_only(tmp_path, monkey
     )
 
     assert result["status"] == "succeeded"
-    layers = [layer for layer in fake_projects[0]._map.listLayers() if layer.name == "Station A" or layer.name == "Hidden station"]
+    layers = [layer for layer in fake_projects[0]._map.listLayers() if layer.name == "Station A" or layer.name == "雨量站2"]
     assert len(layers) == 2
     assert layers[0].showInLegend is True
-    assert layers[1].name == "Hidden station"
+    assert layers[1].name == "雨量站2"
     assert layers[1].showInLegend is False
+    legend = fake_projects[0]._layout.listElements("LEGEND_ELEMENT", "图例")[0]
+    assert [item.name for item in legend.items] == ["Station A"]
 
 
 def test_arcpy_renderer_applies_legend_name_overrides_to_basin_river_and_station_groups(tmp_path, monkeypatch):

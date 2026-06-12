@@ -54,14 +54,27 @@ describe('workspace store navigation', () => {
       font_size: 20
     })
     expect(store.form.layout.elements.legend).toMatchObject({
-      x: 12.19,
-      y: 122.56,
-      width: 59.61,
-      height: 77.22
+      x: 215.07,
+      y: 70.53,
+      width: 45,
+      height: 60
     })
     expect(store.form.layout.legend_style.patch_width).toBe(12)
     expect(store.form.layout.legend_style.patch_height).toBe(6)
     expect(store.form.layout.legend_style.name_overrides).toEqual([])
+    expect(Object.keys(store.options.station_symbol_color_presets)).toEqual([
+      'blue',
+      'cyan',
+      'purple',
+      'orange',
+      'green',
+      'red',
+      'yellow',
+      'pink',
+      'brown',
+      'gray',
+      'black'
+    ])
     expect(store.form.map_view.padding).toMatchObject({
       left: 0.2408,
       right: 0.1808,

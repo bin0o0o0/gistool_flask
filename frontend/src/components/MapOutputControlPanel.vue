@@ -153,9 +153,16 @@ function positionLabel(position: string) {
 
 function colorLabel(key: string, value: string) {
   const labels: Record<string, string> = {
+    blue: '蓝色',
+    cyan: '青色',
+    purple: '紫色',
+    orange: '橙色',
     green: '绿色',
     red: '红色',
-    blue: '蓝色',
+    yellow: '黄色',
+    pink: '粉色',
+    brown: '棕色',
+    gray: '灰色',
     black: '黑色'
   }
   return `${labels[key] || key} ${value}`

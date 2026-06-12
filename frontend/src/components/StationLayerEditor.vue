@@ -47,6 +47,10 @@ function colorLabel(key: string, value: string) {
     orange: '橙色',
     green: '绿色',
     red: '红色',
+    yellow: '黄色',
+    pink: '粉色',
+    brown: '棕色',
+    gray: '灰色',
     black: '黑色'
   }
   return `${labels[key] || key} ${value}`
