@@ -1351,6 +1351,25 @@ def test_watershed_step2_returns_json_outputs(tmp_path):
     assert FakeMergeDeleteService.instances[0].kwargs["plan_name"] == "方案 01"
 
 
+def test_watershed_step2_ignores_frontend_break_points(tmp_path):
+    """POST /api/watershed/step2 should reuse step1 raster state instead of frontend break_points."""
+    app = _watershed_test_app(tmp_path)
+
+    response = app.test_client().post(
+        "/api/watershed/step2",
+        json={
+            "operation": "merge",
+            "watershed_ids": ["Watershed3.1", "Watershed3.2"],
+            "random_folder": "program",
+            "plan_name": "方案 14",
+            "break_points": [[105.1, 27.0, 2]],
+        },
+    )
+
+    assert response.status_code == 200
+    assert FakeMergeDeleteService.instances[0].kwargs["control_points"] == []
+
+
 def test_upload_endpoint_saves_geojson_and_returns_path(tmp_path):
     """上传 GeoJSON 后应保存到 UPLOAD_FOLDER，并返回可供 /api/render 使用的绝对路径。"""
     from app import create_app

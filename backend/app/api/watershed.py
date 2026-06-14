@@ -162,7 +162,10 @@ def step2():
         service = _merge_service(
             random_folder_name=_resolve_algorithm_folder(payload["random_folder"]),
             plan_name=_plan_name(payload),
-            control_points=payload.get("break_points") or [],
+            # Step2 must reuse the outlet and raster state produced by step1.
+            # Passing frontend break_points here makes Merge_delete recompute fdir
+            # from a different outlet while still reading step1 GeoJSON files.
+            control_points=[],
             state_dir="temp_state",
         )
         with _watershed_runtime():

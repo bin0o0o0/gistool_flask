@@ -404,7 +404,6 @@ async function runStep2() {
       operation: operationMode.value,
       watershed_ids: ids,
       random_folder: state.value.randomFolderName,
-      break_points: state.value.breakPoints,
       plan_name: state.value.planName
     })
     const data = response.data as WatershedStep2Response

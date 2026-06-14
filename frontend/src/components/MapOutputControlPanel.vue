@@ -56,7 +56,6 @@ const exportFormats = ref({
 })
 
 const legendRows = computed(() => collectLegendNameOverrides(store.form, { includeHidden: true }))
-const primaryLegendRow = computed(() => legendRows.value[0] || null)
 const stationLayers = computed(() => store.form.inputs.station_layers)
 const firstStationLayer = computed(() => store.form.inputs.station_layers[0])
 const templateName = computed(() => store.uploads.template_project.result?.original_name || '')
@@ -669,13 +668,8 @@ function onStepBack(step: 'data' | 'style' | 'stations-style' | 'stations-attrs'
             <div class="legend-position__buttons"></div>
           </div>
 
-          <div class="inline-form inline-form--legend">
-            <label>图例标题</label>
-            <el-input
-              :model-value="primaryLegendRow?.legend_name || '图例'"
-              class="stretch"
-              @update:model-value="updateLegendName(primaryLegendRow, $event)"
-            />
+          <div class="inline-form inline-form--legend inline-form--legend-toggle">
+            <label>图例</label>
             <span class="toggle-inline">
               显示
               <el-switch v-model="store.form.layout.elements.legend.enabled" @change="markOutput" />

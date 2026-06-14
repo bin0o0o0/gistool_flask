@@ -2356,9 +2356,17 @@ def set_geojson_file_paths(random_folder_name, plan_name, chuangjian=True):
     first_merge = "output_ori"
     target_directory = os.path.join(random_folder_name, first_merge, target_path1)
     target_directory1 = os.path.join(random_folder_name, plan_name, target_path1)
-    # 检查sub_catchment_merge.geojson是否存在
-    use_merged_files = os.path.exists(
-        os.path.join(target_directory1, "sub_catchment_merge.geojson")
+    # 检查合并结果是否完整存在。失败后的半成品不能作为下一次合并输入。
+    required_merge_files = [
+        "sub_catchment_merge.geojson",
+        "upstream_cells_merge.geojson",
+        "junctions_merge.geojson",
+        "river_network_linestrings_merge.geojson",
+        "downstream_dict_merge.json",
+    ]
+    use_merged_files = all(
+        os.path.exists(os.path.join(target_directory1, file_name))
+        for file_name in required_merge_files
     )
     if use_merged_files:
         print("检测到合并后的文件，使用合并后的geojson文件")
@@ -2404,7 +2412,8 @@ def set_geojson_file_paths(random_folder_name, plan_name, chuangjian=True):
                 "junctions_merge.geojson",
                 "river_network_linestrings_merge.geojson",
             ]
-            for file_path in merge_files:
+            for file_name in merge_files:
+                file_path = os.path.join(target_directory1, file_name)
                 if not os.path.exists(file_path):
                     # 创建空的GeoJSON文件
                     empty_geojson = {"type": "FeatureCollection", "features": []}
@@ -2419,6 +2428,18 @@ def set_geojson_file_paths(random_folder_name, plan_name, chuangjian=True):
         river_network_linestrings,
         source_deleted,
         downstream_dict_v,
+    )
+
+
+def _resolve_merge_output_paths(random_folder_name, plan_name, *file_names):
+    """Resolve step2 merge/delete output files into the plan basic_file folder."""
+    output_dir = os.path.join(random_folder_name, plan_name, "basic_file")
+    os.makedirs(output_dir, exist_ok=True)
+    return tuple(
+        file_name
+        if os.path.isabs(file_name)
+        else os.path.join(output_dir, file_name)
+        for file_name in file_names
     )
 
 
@@ -3940,6 +3961,22 @@ def perform_watershed_merge(
     dict: 包含处理结果信息的字典
     """
 
+    (
+        sub_catchment_merge,
+        upstream_cells_merge,
+        junctions_merge,
+        river_network_linestrings_merge,
+        downstream_dict_merge,
+    ) = _resolve_merge_output_paths(
+        random_folder_name,
+        plan_name,
+        sub_catchment_merge,
+        upstream_cells_merge,
+        junctions_merge,
+        river_network_linestrings_merge,
+        downstream_dict_merge,
+    )
+
     # 根据是否进行合并\删除操作，选择调用的geojson文件
     _, _, junctions, _, _, downstream_dict_v = set_geojson_file_paths(
         random_folder_name, plan_name, chuangjian=False
@@ -4056,6 +4093,22 @@ def perform_watershed_deletion(
     返回:
     dict: 包含处理结果信息的字典
     """
+
+    (
+        sub_catchment_merge,
+        upstream_cells_merge,
+        junctions_merge,
+        river_network_linestrings_merge,
+        downstream_dict_merge,
+    ) = _resolve_merge_output_paths(
+        random_folder_name,
+        plan_name,
+        sub_catchment_merge,
+        upstream_cells_merge,
+        junctions_merge,
+        river_network_linestrings_merge,
+        downstream_dict_merge,
+    )
 
     # 验证所选流域是否可以删除
     (
@@ -4177,13 +4230,15 @@ def move_files_to_output_ori(random_folder_name, plan_name):
 
     # 移动每个文件
     for file_name1 in files_merge_to_move:
-        if os.path.exists(file_name1):
+        target_path = os.path.join(target_directory1, file_name1)
+        if os.path.exists(target_path):
+            print(f"{file_name1} already exists in {target_directory1}")
+        elif os.path.exists(file_name1):
             source_path = file_name1
-            target_path = os.path.join(target_directory1, file_name1)
             shutil.move(source_path, target_path)
             print(f"已移动 {file_name1} 到 {target_directory1}")
         else:
-            print(f"文件 {file_name1} 不存在")
+            print(f"File {file_name1} does not exist")
     return random_folder_name
 
 

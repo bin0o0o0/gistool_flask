@@ -296,7 +296,6 @@ export interface WatershedStep2Payload {
   operation: 'merge' | 'delete'
   watershed_ids: string[]
   random_folder: string
-  break_points?: BreakPoint[]
   plan_name?: string
 }
 
